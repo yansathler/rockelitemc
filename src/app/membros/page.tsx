@@ -39,8 +39,20 @@ export default function Membros() {
   const [carregando, setCarregando] = useState(true)
   const [exibirFormulario, setExibirFormulario] = useState(false)
   const [abaAtiva, setAbaAtiva] = useState<'pessoal' | 'endereco' | 'saude'>('pessoal')
+  
+  // 🔍 ESTADOS DE FILTRO (Busca inteligente)
+  const [filtroStatus, setFiltroStatus] = useState<'todos' | 'ativos' | 'inativos'>('todos')
+  const [filtroTexto, setFiltroTexto] = useState('')
+
+  // Controle de Edição e Inativação Auditada
+  const [idEdicao, setIdEdicao] = useState<string | null>(null)
+  const [exibirModalInativar, setExibirModalInativar] = useState(false)
+  const [justificativa, setJustificativa] = useState('')
+  const [membroParaInativar, setMembroParaInativar] = useState<Membro | null>(null)
 
   // Estados do Formulário
+  const [arquivoFoto, setArquivoFoto] = useState<File | null>(null)
+  const [enviandoFoto, setEnviandoFoto] = useState(false)
   const [email, setEmail] = useState('')
   const [nomeCompleto, setNomeCompleto] = useState('')
   const [telefonePessoal, setTelefonePessoal] = useState('')
@@ -62,12 +74,44 @@ export default function Membros() {
   const [emergenciaFone, setEmergenciaFone] = useState('')
   const [possuiAlergia, setPossuiAlergia] = useState(false)
   const [alergiasDescricao, setAlergiasDescricao] = useState('Nenhuma')
-  const [tpMembro, setTpMembro] = useState('prospect_i')
+  const [tpMembro, setTpMembro] = useState('prospect_I')
   const [statusAtivo, setStatusAtivo] = useState(true)
-  const [cargoDiretoria, setCargoDiretoria] = useState('')
-  const [vinculoMembroId, setVinculoMembroId] = useState('') // 🔥 Estado para o Vínculo do Espelho
+  const [cargoDiretoria, setCargoDiretoria] = useState('membro')
+  const [vinculoMembroId, setVinculoMembroId] = useState('')
 
   const [erroForm, setErroForm] = useState('')
+
+  // 🧹 Função para Limpar Todos os Campos do Formulário
+  const limparCampos = () => {
+    setIdEdicao(null)
+    setArquivoFoto(null)
+    setEmail('')
+    setNomeCompleto('')
+    setTelefonePessoal('')
+    setDataNascimento('')
+    setSexo('Masculino')
+    setCpf('')
+    setFotoUrl('')
+    setTarjetaTipo('apelido')
+    setTarjetaEscrita('')
+    setCep('')
+    setEnderecoRua('')
+    setEnderecoNumero('')
+    setEnderecoComplemento('')
+    setEnderecoBairro('')
+    setEnderecoCidade('')
+    setEnderecoEstado('')
+    setTipoSanguineo('')
+    setEmergenciaNome('')
+    setEmergenciaFone('')
+    setPossuiAlergia(false)
+    setAlergiasDescricao('Nenhuma')
+    setTpMembro('prospect_I')
+    setStatusAtivo(true)
+    setCargoDiretoria('membro')
+    setVinculoMembroId('')
+    setErroForm('')
+  }
 
   // 🎭 Funções de Máscaras em Tempo Real
   const aplicarMascaraCPF = (valor: string) => {
@@ -93,17 +137,13 @@ export default function Membros() {
 
   const aplicarMascaraCEP = async (valor: string) => {
     const v = valor.replace(/\D/g, '')
-    
     if (v.length <= 8) {
-      const cepFormatado = v.replace(/(\d{5})(\d)/, '$1-$2')
-      setCep(cepFormatado)
+      setCep(v.replace(/(\d{5})(\d)/, '$1-$2'))
     }
-
     if (v.length === 8) {
       try {
         const res = await fetch(`https://viacep.com.br/ws/${v}/json/`)
         const dados = await res.json()
-
         if (!dados.erro) {
           setEnderecoRua(dados.logradouro || '')
           setEnderecoBairro(dados.bairro || '')
@@ -131,6 +171,92 @@ export default function Membros() {
     buscarMembros()
   }, [])
 
+  // 🔄 FILTRAGEM DOS MEMBROS EM TEMPO REAL NO FRONT-END
+  const membrosFiltrados = membros.filter((membro) => {
+    // 1. Filtro por Status Ativo/Inativo
+    if (filtroStatus === 'ativos' && !membro.status_ativo) return false
+    if (filtroStatus === 'inativos' && membro.status_ativo) return false
+
+    // 2. Filtro por Texto Livre (Nome, Tarjeta ou Patente)
+    if (filtroTexto.trim() !== '') {
+      const texto = filtroTexto.toLowerCase()
+      const nomeMatch = membro.nome_completo?.toLowerCase().includes(texto)
+      const tarjetaMatch = membro.tarjeta_escrita?.toLowerCase().includes(texto)
+      const patenteMatch = membro.tp_membro?.toLowerCase().replace('_', ' ').includes(texto)
+      const cargoMatch = membro.cargo_diretoria?.toLowerCase().replace('_', ' ').includes(texto)
+
+      return nomeMatch || tarjetaMatch || patenteMatch || cargoMatch
+    }
+
+    return true
+  })
+
+  const fazerUploadFoto = async (idDoMembro: string): Promise<string | null> => {
+    if (!arquivoFoto) return fotoUrl || null // Se não mudou a foto, mantém a atual
+  
+    setEnviandoFoto(true)
+    try {
+      const extensao = arquivoFoto.name.split('.').pop()
+      const nomeArquivo = `${idDoMembro}-${Date.now()}.${extensao}`
+  
+      // 1. Envia o arquivo para o bucket 'fotos-membros'
+      const { error: uploadError } = await supabase.storage
+        .from('fotos-membros')
+        .upload(nomeArquivo, arquivoFoto, {
+          cacheControl: '3600',
+          upsert: true
+        })
+  
+      if (uploadError) throw uploadError
+  
+      // 2. Captura a URL pública que o Supabase gerou
+      const { data } = supabase.storage
+        .from('fotos-membros')
+        .getPublicUrl(nomeArquivo)
+  
+      return data.publicUrl
+    } catch (error: any) {
+      console.error('Erro ao fazer upload da foto:', error.message)
+      setErroForm('Erro ao processar upload da fotografia: ' + error.message)
+      return null
+    } finally {
+      setEnviandoFoto(false)
+    }
+  }
+
+  // 🔄 Carregar dados do irmão para edição ao clicar na tabela
+  const carregarMembroParaEdicao = (membro: Membro) => {
+    setIdEdicao(membro.id)
+    setEmail(membro.email || '')
+    setNomeCompleto(membro.nome_completo || '')
+    setTelefonePessoal(membro.telefone_pessoal || '')
+    setDataNascimento(membro.data_nascimento || '')
+    setSexo(membro.sexo || 'Masculino')
+    setCpf(membro.cpf || '')
+    setFotoUrl(membro.foto_url || '')
+    setTarjetaTipo(membro.tarjeta_tipo || 'apelido')
+    setTarjetaEscrita(membro.tarjeta_escrita || '')
+    setCep(membro.cep || '')
+    setEnderecoRua(membro.endereco_rua || '')
+    setEnderecoNumero(membro.endereco_numero || '')
+    setEnderecoComplemento(membro.endereco_complemento || '')
+    setEnderecoBairro(membro.endereco_bairro || '')
+    setEnderecoCidade(membro.endereco_cidade || '')
+    setEnderecoEstado(membro.endereco_estado || '')
+    setTipoSanguineo(membro.tipo_sanguineo || '')
+    setEmergenciaNome(membro.contato_emergencia_nome || '')
+    setEmergenciaFone(membro.contato_emergencia_fone || '')
+    setPossuiAlergia(membro.possui_alergia || false)
+    setAlergiasDescricao(membro.alergias_descricao || 'Nenhuma')
+    setTpMembro(membro.tp_membro || 'prospect_I')
+    setStatusAtivo(membro.status_ativo)
+    setCargoDiretoria(membro.cargo_diretoria || 'membro')
+    setVinculoMembroId(membro.vinculo_membro_id || '')
+    
+    setAbaAtiva('pessoal')
+    setExibirFormulario(true)
+  }
+
   const handleCadastrar = async (e: React.FormEvent) => {
     e.preventDefault()
     setErroForm('')
@@ -141,20 +267,25 @@ export default function Membros() {
       return
     }
 
-    // 🔥 Trava de Segurança para Membro Espelho
     if (tpMembro === 'Membros_espelho' && !vinculoMembroId) {
       setErroForm('Um Membro Espelho precisa obrigatoriamente estar vinculado a um integrante titular.')
       return
     }
 
-    const dadosParaInserir = {
+    const idRegistro = idEdicao || crypto.randomUUID()
+    const urlDaFotoFinal = await fazerUploadFoto(idRegistro)
+
+    if (arquivoFoto && !urlDaFotoFinal) return
+
+    const dadosMembro = {
+      id: idRegistro,
       email,
       nome_completo: nomeCompleto,
       telefone_pessoal: telefonePessoal,
       data_nascimento: dataNascimento,
       sexo,
       cpf,
-      foto_url: fotoUrl || null,
+      foto_url: urlDaFotoFinal,
       tarjeta_tipo: tarjetaTipo,
       tarjeta_escrita: tarjetaEscrita || null,
       cep: cep || null,
@@ -175,45 +306,59 @@ export default function Membros() {
       vinculo_membro_id: tpMembro === 'Membros_espelho' ? vinculoMembroId : null,
     }
 
-    const { error } = await supabase.from('membros').insert([dadosParaInserir])
-
-    if (error) {
-      setErroForm('Erro ao salvar irmão: ' + error.message)
+    let resultado;
+    
+    if (idEdicao) {
+      resultado = await supabase.from('membros').update(dadosMembro).eq('id', idEdicao).select()
     } else {
-      // Limpeza de campos
-      setEmail('')
-      setNomeCompleto('')
-      setTelefonePessoal('')
-      setDataNascimento('')
-      setSexo('Masculino')
-      setCpf('')
-      setFotoUrl('')
-      setTarjetaTipo('apelido')
-      setTarjetaEscrita('')
-      setCep('')
-      setEnderecoRua('')
-      setEnderecoNumero('')
-      setEnderecoComplemento('')
-      setEnderecoBairro('')
-      setEnderecoCidade('')
-      setEnderecoEstado('')
-      setTipoSanguineo('')
-      setEmergenciaNome('')
-      setEmergenciaFone('')
-      setPossuiAlergia(false)
-      setAlergiasDescricao('Nenhuma')
-      setTpMembro('prospect_i')
-      setStatusAtivo(true)
-      setCargoDiretoria('')
-      setVinculoMembroId('')
+      resultado = await supabase.from('membros').insert([dadosMembro])
+    }
+
+    if (resultado.error) {
+      setErroForm('Erro ao salvar irmão: ' + resultado.error.message)
+    } else {
+      limparCampos()
       setExibirFormulario(false)
-      setAbaAtiva('pessoal')
+      buscarMembros()
+    }
+  }
+
+  const handleInativarMembro = async () => {
+    if (!membroParaInativar || !justificativa.trim()) return
+
+    const { error: erroMembro } = await supabase
+      .from('membros')
+      .update({ status_ativo: false })
+      .eq('id', membroParaInativar.id)
+
+    if (erroMembro) {
+      alert('Erro ao mudar status do irmão: ' + erroMembro.message)
+      return
+    }
+
+    const { error: erroLog } = await supabase
+      .from('logs_inativacao')
+      .insert([
+        {
+          membro_id: membroParaInativar.id,
+          justificativa: justificativa.trim()
+        }
+      ])
+
+    if (erroLog) {
+      alert('Status alterado, mas houve erro ao registrar o Log de Auditoria: ' + erroLog.message)
+    } else {
+      setExibirModalInativar(false)
+      setJustificativa('')
+      setMembroParaInativar(null)
+      limparCampos()
+      setExibirFormulario(false)
       buscarMembros()
     }
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10">
+    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10 relative">
       
       <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
@@ -221,10 +366,18 @@ export default function Membros() {
           <p className="text-sm text-zinc-400">Gerenciamento de membros e comando do Rock Elite MC</p>
         </div>
         <button
-          onClick={() => setExibirFormulario(!exibirFormulario)}
+          onClick={() => {
+            if (exibirFormulario) {
+              limparCampos()
+              setExibirFormulario(false)
+            } else {
+              limparCampos()
+              setExibirFormulario(true)
+            }
+          }}
           className="rounded bg-zinc-100 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors"
         >
-          {exibirFormulario ? 'Fechar Cadastro' : '⚡ Recrutar Irmão'}
+          {exibirFormulario ? 'Fechar Ficha' : '⚡ Recrutar Irmão'}
         </button>
       </div>
 
@@ -232,7 +385,26 @@ export default function Membros() {
         
         {exibirFormulario && (
           <div className="rounded-xl border border-zinc-900 bg-zinc-900/30 p-6 lg:col-span-5 h-fit max-h-[85vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-white mb-4">Ficha de Alistamento</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-white">
+                {idEdicao ? '📝 Alterar Cadastro' : 'Ficha de Alistamento'}
+              </h2>
+              {idEdicao && statusAtivo && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const membro = membros.find(m => m.id === idEdicao)
+                    if (membro) {
+                      setMembroParaInativar(membro)
+                      setExibirModalInativar(true)
+                    }
+                  }}
+                  className="rounded bg-red-950 border border-red-900 text-red-400 px-3 py-1 text-xs font-bold uppercase hover:bg-red-900 hover:text-white transition-all"
+                >
+                  💀 Inativar Membro
+                </button>
+              )}
+            </div>
             
             <div className="mb-6 flex border-b border-zinc-900 text-xs font-bold uppercase tracking-wider">
               <button type="button" onClick={() => setAbaAtiva('pessoal')} className={`pb-3 pr-4 ${abaAtiva === 'pessoal' ? 'border-b border-white text-white' : 'text-zinc-500'}`}>👤 Pessoal</button>
@@ -277,9 +449,37 @@ export default function Membros() {
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Data Nascimento *</label>
                       <input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" required />
                     </div>
+                    
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">URL da Fotografia</label>
-                      <input type="text" value={fotoUrl} onChange={(e) => setFotoUrl(e.target.value)} placeholder="Link da imagem" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">
+                        Fotografia do Integrante {enviandoFoto && '⏳ (Enviando...)'}
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-full bg-zinc-950 border border-zinc-900 flex items-center justify-center overflow-hidden shrink-0">
+                          {arquivoFoto ? (
+                            <img src={URL.createObjectURL(arquivoFoto)} alt="Preview" className="h-full w-full object-cover" />
+                          ) : fotoUrl ? (
+                            <img src={fotoUrl} alt="Atual" className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="text-[10px] text-zinc-600 font-bold">MC</span>
+                          )}
+                        </div>
+
+                        <label className="w-full flex items-center justify-center rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 hover:text-white hover:border-zinc-700 cursor-pointer transition-colors text-center font-semibold uppercase tracking-wider truncate">
+                          {arquivoFoto ? '📸 Alterar' : '📷 Tirar/Escolher'}
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            capture="environment"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                setArquivoFoto(e.target.files[0])
+                              }
+                            }}
+                            className="hidden" 
+                          />
+                        </label>
+                      </div>
                     </div>
                   </div>
                   <div className="border-t border-zinc-900 pt-3 grid grid-cols-2 gap-3">
@@ -310,7 +510,7 @@ export default function Membros() {
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Cargo Diretoria / Perfil</label>
                       <select 
-                        value={cargoDiretoria} 
+                        value={cargoDiretoria || 'membro'} 
                         onChange={(e) => setCargoDiretoria(e.target.value)} 
                         className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none"
                       >
@@ -322,9 +522,9 @@ export default function Membros() {
                       </select>
                     </div> 
 
-                    {/* 🔥 Campo Condicional: Vínculo do Membro Espelho */}
+                    {/* Campo Condicional: Vínculo do Membro Espelho */}
                     {tpMembro === 'Membros_espelho' && (
-                      <div className="col-span-3 mt-1 animate-fadeIn">
+                      <div className="col-span-3 mt-1">
                         <label className="block text-[10px] font-bold text-red-400 mb-1 uppercase">Vincular ao Integrante Titular *</label>
                         <select 
                           value={vinculoMembroId} 
@@ -334,7 +534,7 @@ export default function Membros() {
                         >
                           <option value="">Selecione o membro titular...</option>
                           {membros
-                            .filter(m => m.tp_membro !== 'Membros_espelho')
+                            .filter(m => m.tp_membro !== 'Membros_espelho' && m.id !== idEdicao)
                             .map(m => (
                               <option key={m.id} value={m.id}>{m.nome_completo} ({m.tarjeta_escrita || 'Sem Tarjeta'})</option>
                             ))
@@ -351,13 +551,7 @@ export default function Membros() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">CEP</label>
-                    <input 
-                      type="text" 
-                      value={cep} 
-                      onChange={(e) => aplicarMascaraCEP(e.target.value)} 
-                      placeholder="00000-000" 
-                      className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" 
-                    />
+                    <input type="text" value={cep} onChange={(e) => aplicarMascaraCEP(e.target.value)} placeholder="00000-000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
@@ -397,11 +591,7 @@ export default function Membros() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Tipo Sanguíneo</label>
-                    <select 
-                      value={tipoSanguineo} 
-                      onChange={(e) => setTipoSanguineo(e.target.value)} 
-                      className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none"
-                    >
+                    <select value={tipoSanguineo} onChange={(e) => setTipoSanguineo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none">
                       <option value="">Selecione o tipo sanguíneo</option>
                       <option value="A+">A+</option>
                       <option value="A-">A-</option>
@@ -443,12 +633,11 @@ export default function Membros() {
                 </div>
               )}
 
-              <div className="border-t border-zinc-900 pt-4 flex gap-3">
-                {abaAtiva !== 'saude' ? (
-                  <button type="button" onClick={() => setAbaAtiva(abaAtiva === 'pessoal' ? 'endereco' : 'saude')} className="w-full rounded bg-zinc-900 border border-zinc-800 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-zinc-800">Próxima Aba ➡️</button>
-                ) : (
-                  <button type="submit" className="w-full rounded bg-zinc-100 py-2.5 text-sm font-bold uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors">Salvar na Base 🦅</button>
-                )}
+              {/* Botão de envio fixo e persistente em qualquer aba */}
+              <div className="border-t border-zinc-900 pt-4">
+                <button type="submit" disabled={enviandoFoto} className="w-full rounded bg-zinc-100 py-2.5 text-sm font-bold uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  {enviandoFoto ? '⏳ Enviando Foto...' : idEdicao ? '⚡ Atualizar Base' : 'Salvar na Base 🦅'}
+                </button>
               </div>
 
               {erroForm && <p className="text-xs font-semibold text-red-400 bg-red-950/30 p-2 rounded border border-red-900">{erroForm}</p>}
@@ -458,12 +647,40 @@ export default function Membros() {
 
         {/* Tabela de Integrantes Completa */}
         <div className={`rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 ${exibirFormulario ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
-          <h2 className="text-lg font-bold text-white mb-4">Integrantes Atuais</h2>
+          
+          {/* 🔍 BARRA DE FILTROS INTELIGENTES */}
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-5">
+            <h2 className="text-lg font-bold text-white whitespace-nowrap">Integrantes Atuais</h2>
+            
+            <div className="flex flex-col gap-2 sm:flex-row w-full sm:justify-end">
+              {/* Campo de Texto Livre */}
+              <input
+                type="text"
+                placeholder="🔍 Buscar por nome, tarjeta ou patente..."
+                value={filtroTexto}
+                onChange={(e) => setFiltroTexto(e.target.value)}
+                className="w-full sm:max-w-xs rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none placeholder-zinc-600"
+              />
+
+              {/* Lista Suspensa de Status */}
+              <select
+                value={filtroStatus}
+                onChange={(e) => setFiltroStatus(e.target.value as any)}
+                className="rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none"
+              >
+                <option value="todos">Todos Status</option>
+                <option value="ativos">Apenas Ativos</option>
+                <option value="inativos">Apenas Inativos</option>
+              </select>
+            </div>
+          </div>
           
           {carregando ? (
             <p className="text-sm text-zinc-500 italic">Buscando na Sede...</p>
-          ) : membros.length === 0 ? (
-            <p className="text-sm text-zinc-500 italic">Nenhum irmão cadastrado ainda.</p>
+          ) : membrosFiltrados.length === 0 ? (
+            <p className="text-sm text-zinc-500 italic p-4 text-center border border-dashed border-zinc-900 rounded-lg">
+              Nenhum integrante encontrado para os filtros aplicados.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-zinc-300">
@@ -477,8 +694,13 @@ export default function Membros() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-900">
-                  {membros.map((membro) => (
-                    <tr key={membro.id} className="hover:bg-zinc-900/30 transition-colors text-xs">
+                  {membrosFiltrados.map((membro) => (
+                    <tr 
+                      key={membro.id} 
+                      onClick={() => carregarMembroParaEdicao(membro)}
+                      className={`transition-colors text-xs cursor-pointer ${membro.status_ativo ? 'hover:bg-zinc-900/50' : 'bg-red-950/5 hover:bg-red-950/10 opacity-60'}`}
+                      title="Clique para editar este integrante"
+                    >
                       <td className="p-4 flex items-center gap-3">
                         {membro.foto_url ? (
                           <img src={membro.foto_url} alt="Foto" className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
@@ -486,7 +708,10 @@ export default function Membros() {
                           <div className="h-9 w-9 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-600">MC</div>
                         )}
                         <div>
-                          <div className="font-bold text-white text-sm">{membro.nome_completo}</div>
+                          <div className="font-bold text-white text-sm flex items-center gap-2">
+                            {membro.nome_completo}
+                            {!membro.status_ativo && <span className="bg-red-900/80 text-[8px] tracking-wide text-red-200 px-1.5 py-0.5 rounded uppercase font-extrabold">Inativo</span>}
+                          </div>
                           <div className="text-[10px] text-zinc-500">CPF: {membro.cpf}</div>
                         </div>
                       </td>
@@ -530,6 +755,42 @@ export default function Membros() {
         </div>
 
       </div>
+
+      {/* 💀 MODAL DE JUSTIFICATIVA DE INATIVAÇÃO AUDITADA */}
+      {exibirModalInativar && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full shadow-2xl">
+            <h3 className="text-lg font-bold text-red-400 uppercase tracking-wider mb-2">Justificativa de Inativação</h3>
+            <p className="text-xs text-zinc-400 mb-4">
+              Informe detalhadamente o motivo do desligamento ou afastamento de <strong className="text-white">{membroParaInativar?.nome_completo}</strong>. O registro ficará salvo permanentemente no histórico da irmandade.
+            </p>
+            <textarea
+              value={justificativa}
+              onChange={(e) => setJustificativa(e.target.value)}
+              placeholder="Ex: Afastamento por motivos profissionais / Desligamento oficial da irmandade..."
+              className="w-full h-28 rounded bg-zinc-950 border border-zinc-800 p-3 text-sm text-white focus:border-red-900 focus:outline-none resize-none mb-4"
+              required
+            />
+            <div className="flex gap-3 justify-end text-xs font-bold uppercase">
+              <button
+                type="button"
+                onClick={() => { setExibirModalInativar(false); setJustificativa(''); }}
+                className="px-4 py-2 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleInativarMembro}
+                disabled={!justificativa.trim()}
+                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Confirmar Baixa 💀
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
