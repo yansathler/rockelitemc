@@ -5,7 +5,7 @@ import { createClient } from '../../lib/supabase'
 
 interface Membro {
   id: string
-  email: string
+  email: string | null
   nome_completo: string
   telefone_pessoal: string
   data_nascimento: string
@@ -37,20 +37,18 @@ export default function Membros() {
   
   const [membros, setMembros] = useState<Membro[]>([])
   const [carregando, setCarregando] = useState(true)
+  const [salvandoDados, setSalvandoDados] = useState(false)
   const [exibirFormulario, setExibirFormulario] = useState(false)
   const [abaAtiva, setAbaAtiva] = useState<'pessoal' | 'endereco' | 'saude'>('pessoal')
   
-  // 🔍 ESTADOS DE FILTRO (Busca inteligente)
   const [filtroStatus, setFiltroStatus] = useState<'todos' | 'ativos' | 'inativos'>('todos')
   const [filtroTexto, setFiltroTexto] = useState('')
 
-  // Controle de Edição e Inativação Auditada
   const [idEdicao, setIdEdicao] = useState<string | null>(null)
   const [exibirModalInativar, setExibirModalInativar] = useState(false)
   const [justificativa, setJustificativa] = useState('')
   const [membroParaInativar, setMembroParaInativar] = useState<Membro | null>(null)
 
-  // Estados do Formulário
   const [arquivoFoto, setArquivoFoto] = useState<File | null>(null)
   const [enviandoFoto, setEnviandoFoto] = useState(false)
   const [email, setEmail] = useState('')
@@ -81,7 +79,6 @@ export default function Membros() {
 
   const [erroForm, setErroForm] = useState('')
 
-  // 🧹 Função para Limpar Todos os Campos do Formulário
   const limparCampos = () => {
     setIdEdicao(null)
     setArquivoFoto(null)
@@ -113,7 +110,6 @@ export default function Membros() {
     setErroForm('')
   }
 
-  // 🎭 Funções de Máscaras em Tempo Real
   const aplicarMascaraCPF = (valor: string) => {
     const v = valor.replace(/\D/g, '')
     if (v.length <= 11) {
@@ -171,13 +167,10 @@ export default function Membros() {
     buscarMembros()
   }, [])
 
-  // 🔄 FILTRAGEM DOS MEMBROS EM TEMPO REAL NO FRONT-END
   const membrosFiltrados = membros.filter((membro) => {
-    // 1. Filtro por Status Ativo/Inativo
     if (filtroStatus === 'ativos' && !membro.status_ativo) return false
     if (filtroStatus === 'inativos' && membro.status_ativo) return false
 
-    // 2. Filtro por Texto Livre (Nome, Tarjeta ou Patente)
     if (filtroTexto.trim() !== '') {
       const texto = filtroTexto.toLowerCase()
       const nomeMatch = membro.nome_completo?.toLowerCase().includes(texto)
@@ -192,14 +185,13 @@ export default function Membros() {
   })
 
   const fazerUploadFoto = async (idDoMembro: string): Promise<string | null> => {
-    if (!arquivoFoto) return fotoUrl || null // Se não mudou a foto, mantém a atual
+    if (!arquivoFoto) return fotoUrl || null
   
     setEnviandoFoto(true)
     try {
       const extensao = arquivoFoto.name.split('.').pop()
       const nomeArquivo = `${idDoMembro}-${Date.now()}.${extensao}`
   
-      // 1. Envia o arquivo para o bucket 'fotos-membros'
       const { error: uploadError } = await supabase.storage
         .from('fotos-membros')
         .upload(nomeArquivo, arquivoFoto, {
@@ -209,7 +201,6 @@ export default function Membros() {
   
       if (uploadError) throw uploadError
   
-      // 2. Captura a URL pública que o Supabase gerou
       const { data } = supabase.storage
         .from('fotos-membros')
         .getPublicUrl(nomeArquivo)
@@ -224,7 +215,6 @@ export default function Membros() {
     }
   }
 
-  // 🔄 Carregar dados do irmão para edição ao clicar na tabela
   const carregarMembroParaEdicao = (membro: Membro) => {
     setIdEdicao(membro.id)
     setEmail(membro.email || '')
@@ -257,34 +247,102 @@ export default function Membros() {
     setExibirFormulario(true)
   }
 
+  // 🔥 NOVA FUNÇÃO: Dispara a rota PUT para resetar as credenciais do usuário selecionado
+  const handleResetarSenha = async () => {
+    if (!idEdicao) return
+    
+    const confirmar = window.confirm('Tem certeza de que deseja resetar a senha deste irmão para o padrão "RockElite@123"? Ele será obrigado a alterá-la no próximo login.')
+    if (!confirmar) return
+
+    setSalvandoDados(true)
+    try {
+      const res = await fetch('/api/membros', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idMembro: idEdicao })
+      })
+
+      const dados = await res.json()
+
+      if (!res.ok || dados.error) {
+        alert('Erro ao resetar senha: ' + (dados.error || 'Erro desconhecido.'))
+      } else {
+        alert('⚡ Chave forjada! A senha voltou para "RockElite@123" e a trava de primeiro acesso foi reativada.')
+        limparCampos()
+        setExibirFormulario(false)
+        buscarMembros()
+      }
+    } catch (err: any) {
+      alert('Erro na infraestrutura do servidor: ' + err.message)
+    } finally {
+      setSalvandoDados(false)
+    }
+  }
+
   const handleCadastrar = async (e: React.FormEvent) => {
     e.preventDefault()
     setErroForm('')
+    setSalvandoDados(true)
 
-    if (!nomeCompleto || !email || !telefonePessoal || !dataNascimento || !cpf) {
-      setErroForm('Preencha todos os campos obrigatórios (*) da Aba Dados Pessoais.')
+    const cpfLimpo = cpf.replace(/\D/g, '')
+
+    if (!nomeCompleto || !telefonePessoal || !dataNascimento || cpfLimpo.length !== 11) {
+      setErroForm('Preencha os campos obrigatórios (*) da Aba Pessoal e certifique-se de que o CPF está completo.')
       setAbaAtiva('pessoal')
+      setSalvandoDados(false)
       return
     }
 
     if (tpMembro === 'Membros_espelho' && !vinculoMembroId) {
-      setErroForm('Um Membro Espelho precisa obrigatoriamente estar vinculado a um integrante titular.')
+      setErroForm('Um Membro Espelho precisa estar vinculado a um integrante titular.')
+      setSalvandoDados(false)
       return
     }
 
-    const idRegistro = idEdicao || crypto.randomUUID()
-    const urlDaFotoFinal = await fazerUploadFoto(idRegistro)
+    let idRegistro = idEdicao
 
-    if (arquivoFoto && !urlDaFotoFinal) return
+    // ⚡ PASSO CRÍTICO: Se for um NOVO MEMBRO, cria primeiro na API interna de Autenticação via CPF
+    if (!idEdicao) {
+      try {
+        const resAuth = await fetch('/api/membros', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cpf: cpfLimpo,
+            senhaProvisoria: 'RockElite@123' // Senha padrão para o primeiro acesso
+          })
+        })
+
+        const dadosAuth = await resAuth.json()
+
+        if (!resAuth.ok || dadosAuth.error) {
+          throw new Error(dadosAuth.error || 'Falha ao forjar autenticação no servidor.')
+        }
+
+        // Captura o ID real gerado pelo gerenciador de usuários do Supabase Auth
+        idRegistro = dadosAuth.user.id
+      } catch (err: any) {
+        setErroForm('Erro na Infraestrutura de Autenticação: ' + err.message)
+        setSalvandoDados(false)
+        return
+      }
+    }
+
+    // Realiza o upload se houver foto selecionada
+    const urlDaFotoFinal = await fazerUploadFoto(idRegistro!)
+    if (arquivoFoto && !urlDaFotoFinal) {
+      setSalvandoDados(false)
+      return
+    }
 
     const dadosMembro = {
       id: idRegistro,
-      email,
+      email: email || null,
       nome_completo: nomeCompleto,
       telefone_pessoal: telefonePessoal,
       data_nascimento: dataNascimento,
       sexo,
-      cpf,
+      cpf: cpfLimpo, // Guarda o CPF limpo para consistência
       foto_url: urlDaFotoFinal,
       tarjeta_tipo: tarjetaTipo,
       tarjeta_escrita: tarjetaEscrita || null,
@@ -306,16 +364,18 @@ export default function Membros() {
       vinculo_membro_id: tpMembro === 'Membros_espelho' ? vinculoMembroId : null,
     }
 
-    let resultado;
+    let resultado
     
     if (idEdicao) {
-      resultado = await supabase.from('membros').update(dadosMembro).eq('id', idEdicao).select()
+      resultado = await supabase.from('membros').update(dadosMembro).eq('id', idEdicao)
     } else {
       resultado = await supabase.from('membros').insert([dadosMembro])
     }
 
+    setSalvandoDados(false)
+
     if (resultado.error) {
-      setErroForm('Erro ao salvar irmão: ' + resultado.error.message)
+      setErroForm('Cadastro de credenciais ok, mas houve um erro ao atualizar o perfil: ' + resultado.error.message)
     } else {
       limparCampos()
       setExibirFormulario(false)
@@ -385,24 +445,40 @@ export default function Membros() {
         
         {exibirFormulario && (
           <div className="rounded-xl border border-zinc-900 bg-zinc-900/30 p-6 lg:col-span-5 h-fit max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
+            {/* ⚡ CABEÇALHO DA FICHA ALTERADO: Alinhamento flexbox para comportar o novo botão de Reset */}
+            <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
               <h2 className="text-lg font-bold text-white">
                 {idEdicao ? '📝 Alterar Cadastro' : 'Ficha de Alistamento'}
               </h2>
-              {idEdicao && statusAtivo && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const membro = membros.find(m => m.id === idEdicao)
-                    if (membro) {
-                      setMembroParaInativar(membro)
-                      setExibirModalInativar(true)
-                    }
-                  }}
-                  className="rounded bg-red-950 border border-red-900 text-red-400 px-3 py-1 text-xs font-bold uppercase hover:bg-red-900 hover:text-white transition-all"
-                >
-                  💀 Inativar Membro
-                </button>
+              {idEdicao && (
+                <div className="flex items-center gap-2">
+                  {/* 🔥 NOVO BOTÃO DE RESET DE SENHA */}
+                  <button
+                    type="button"
+                    onClick={handleResetarSenha}
+                    disabled={salvandoDados}
+                    className="rounded bg-zinc-800 border border-zinc-700 text-zinc-300 px-3 py-1 text-xs font-bold uppercase hover:bg-zinc-700 transition-all disabled:opacity-40"
+                    title="Volta para a senha padrão RockElite@123"
+                  >
+                    🔑 Resetar Senha
+                  </button>
+
+                  {statusAtivo && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const membro = membros.find(m => m.id === idEdicao)
+                        if (membro) {
+                          setMembroParaInativar(membro)
+                          setExibirModalInativar(true)
+                        }
+                      }}
+                      className="rounded bg-red-950 border border-red-900 text-red-400 px-3 py-1 text-xs font-bold uppercase hover:bg-red-900 hover:text-white transition-all"
+                    >
+                      💀 Inativar
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             
@@ -414,7 +490,6 @@ export default function Membros() {
 
             <form onSubmit={handleCadastrar} className="space-y-4">
               
-              {/* ABA 1: DADOS PESSOAIS */}
               {abaAtiva === 'pessoal' && (
                 <div className="space-y-4">
                   <div>
@@ -423,8 +498,8 @@ export default function Membros() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">E-mail *</label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" required />
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">E-mail (Contato)</label>
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Opcional" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Telefone Pessoal *</label>
@@ -434,7 +509,7 @@ export default function Membros() {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">CPF *</label>
-                      <input type="text" value={cpf} onChange={(e) => setCpf(aplicarMascaraCPF(e.target.value))} placeholder="000.000.000-00" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" required />
+                      <input type="text" value={cpf} onChange={(e) => setCpf(aplicarMascaraCPF(e.target.value))} placeholder="000.000.000-00" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" disabled={!!idEdicao} required />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Sexo</label>
@@ -522,7 +597,6 @@ export default function Membros() {
                       </select>
                     </div> 
 
-                    {/* Campo Condicional: Vínculo do Membro Espelho */}
                     {tpMembro === 'Membros_espelho' && (
                       <div className="col-span-3 mt-1">
                         <label className="block text-[10px] font-bold text-red-400 mb-1 uppercase">Vincular ao Integrante Titular *</label>
@@ -546,7 +620,6 @@ export default function Membros() {
                 </div>
               )}
 
-              {/* ABA 2: ENDEREÇO RESIDENCIAL */}
               {abaAtiva === 'endereco' && (
                 <div className="space-y-4">
                   <div>
@@ -586,7 +659,6 @@ export default function Membros() {
                 </div>
               )}
 
-              {/* ABA 3: SAÚDE & EMERGÊNCIA */}
               {abaAtiva === 'saude' && (
                 <div className="space-y-4">
                   <div>
@@ -633,10 +705,9 @@ export default function Membros() {
                 </div>
               )}
 
-              {/* Botão de envio fixo e persistente em qualquer aba */}
               <div className="border-t border-zinc-900 pt-4">
-                <button type="submit" disabled={enviandoFoto} className="w-full rounded bg-zinc-100 py-2.5 text-sm font-bold uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                  {enviandoFoto ? '⏳ Enviando Foto...' : idEdicao ? '⚡ Atualizar Base' : 'Salvar na Base 🦅'}
+                <button type="submit" disabled={enviandoFoto || salvandoDados} className="w-full rounded bg-zinc-100 py-2.5 text-sm font-bold uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  {salvandoDados ? '⏳ Forjando Acesso...' : enviandoFoto ? '⏳ Enviando Foto...' : idEdicao ? '⚡ Atualizar Base' : 'Salvar na Base 🦅'}
                 </button>
               </div>
 
@@ -645,15 +716,12 @@ export default function Membros() {
           </div>
         )}
 
-        {/* Tabela de Integrantes Completa */}
         <div className={`rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 ${exibirFormulario ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
           
-          {/* 🔍 BARRA DE FILTROS INTELIGENTES */}
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-5">
             <h2 className="text-lg font-bold text-white whitespace-nowrap">Integrantes Atuais</h2>
             
             <div className="flex flex-col gap-2 sm:flex-row w-full sm:justify-end">
-              {/* Campo de Texto Livre */}
               <input
                 type="text"
                 placeholder="🔍 Buscar por nome, tarjeta ou patente..."
@@ -662,7 +730,6 @@ export default function Membros() {
                 className="w-full sm:max-w-xs rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none placeholder-zinc-600"
               />
 
-              {/* Lista Suspensa de Status */}
               <select
                 value={filtroStatus}
                 onChange={(e) => setFiltroStatus(e.target.value as any)}
@@ -712,7 +779,9 @@ export default function Membros() {
                             {membro.nome_completo}
                             {!membro.status_ativo && <span className="bg-red-900/80 text-[8px] tracking-wide text-red-200 px-1.5 py-0.5 rounded uppercase font-extrabold">Inativo</span>}
                           </div>
-                          <div className="text-[10px] text-zinc-500">CPF: {membro.cpf}</div>
+                          <div className="text-[10px] text-zinc-500">
+                            CPF: {membro.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                          </div>
                         </div>
                       </td>
                       <td className="p-4">
@@ -723,7 +792,7 @@ export default function Membros() {
                         ) : <span className="text-zinc-600">-</span>}
                       </td>
                       <td className="p-4">
-                        <div className="text-zinc-400">{membro.email}</div>
+                        <div className="text-zinc-400">{membro.email || 'Sem e-mail'}</div>
                         <div className="text-zinc-500">{membro.telefone_pessoal}</div>
                         {membro.endereco_cidade && <div className="text-[10px] text-zinc-600 mt-0.5">{membro.endereco_cidade} - {membro.endereco_estado}</div>}
                       </td>
@@ -756,7 +825,6 @@ export default function Membros() {
 
       </div>
 
-      {/* 💀 MODAL DE JUSTIFICATIVA DE INATIVAÇÃO AUDITADA */}
       {exibirModalInativar && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full shadow-2xl">

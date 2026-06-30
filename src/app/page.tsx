@@ -8,77 +8,115 @@ export default function Login() {
   const router = useRouter()
   const supabase = createClient()
 
-  // Estados padrão de Login
-  const [email, setEmail] = useState('')
+  // Estados padrão de Login (Trocado email por cpf)
+  const [cpf, setCpf] = useState('')
   const [senha, setSenha] = useState('')
   const [carregando, setCarregando] = useState(false)
   const [mensagem, setMensagem] = useState({ tipo: '', texto: '' })
 
-  // Estados para o fluxo de Primeiro Acesso (Troca de Senha Obrigatória)
+  // Estados para o fluxo de Primeiro Acesso
   const [telaPrimeiroAcesso, setTelaPrimeiroAcesso] = useState(false)
-  const [membroIdFocado, setMembroIdFocado] = useState<string | null>(null)
   const [novaSenha, setNovaSenha] = useState('')
   const [confirmarNovaSenha, setConfirmarNovaSenha] = useState('')
 
-  // 1. Executa a tentativa de login inteligente usando a função RPC do Postgres
+  // Função para aplicar máscara de CPF (000.000.000-00) dinamicamente
+  const formatarCPF = (valor: string) => {
+    const apenasNumeros = valor.replace(/\D/g, '')
+    return apenasNumeros
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})$/, '$1-$2')
+      .substring(0, 14)
+  }
+
+  // 1. Executa o login com pré-validação rigorosa de status no servidor
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setCarregando(true)
     setMensagem({ tipo: '', texto: '' })
 
+    // Remove pontos e traços para obter apenas os números do CPF
+    const cpfLimpo = cpf.replace(/\D/g, '')
+
+    if (cpfLimpo.length !== 11) {
+      setMensagem({ tipo: 'erro', texto: 'Por favor, digite um CPF válido com 11 dígitos.' })
+      setCarregando(false)
+      return
+    }
+
     try {
-      const { data, error } = await supabase.rpc('validar_login_membro', {
-        p_email: email.trim(),
-        p_senha: senha
+      // 🚨 PASSO 1: Bate na nova API para validar o status do irmão no banco ANTES de abrir sessão
+      const respostaPreCheck = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: cpfLimpo, senha: senha })
+      })
+
+      const dadosPreCheck = await respostaPreCheck.json()
+
+      // Se a API retornar erro (ex: Usuário Inativo / Código 403), barra na hora sem criar sessão
+      if (!respostaPreCheck.ok || dadosPreCheck.error) {
+        setMensagem({ tipo: 'erro', texto: dadosPreCheck.error || 'Erro ao validar acesso.' })
+        setCarregando(false)
+        return
+      }
+
+      // 🚨 PASSO 2: Com o status ATIVO validado pelo servidor, agora sim criamos a sessão com segurança
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: dadosPreCheck.emailSintetico,
+        password: senha,
       })
 
       if (error) {
-        setMensagem({ tipo: 'erro', texto: 'Falha na comunicação com a base do MC.' })
+        // Trata erros comuns de credenciais do Supabase
+        const textoErro = error.message === 'Invalid login credentials'
+          ? 'Acesso negado. CPF ou Senha inválidos.'
+          : 'Erro ao conectar com a sede: ' + error.message
+          
+        setMensagem({ tipo: 'erro', texto: textoErro })
         setCarregando(false)
         return
       }
 
-      // O retorno do RPC vem sempre dentro de um array de objetos [ { login_valido, ... } ]
-      const resultado = data && data[0]
+      const usuario = data?.user
 
-      if (!resultado || !resultado.login_valido) {
-        setMensagem({ tipo: 'erro', texto: resultado?.mensagem || 'Acesso negado. Credenciais inválidas.' })
-        setCarregando(false)
-        return
-      }
+      // Checa se a flag de primeiro_acesso está ativa no user_metadata
+      const precisaMudarSenha = usuario?.user_metadata?.primeiro_acesso
 
-      // Se as credenciais estiverem certas, checa se é o primeiro acesso
-      if (resultado.primeiro_acesso) {
-        setMembroIdFocado(resultado.membro_id)
-        setMensagem({ tipo: 'sucesso', texto: `Fala, ${resultado.nome_completo}! Identificamos o seu primeiro acesso. Altere a sua senha para continuar.` })
+      if (precisaMudarSenha) {
+        setMensagem({ 
+          tipo: 'sucesso', 
+          texto: 'Identificamos que este é o seu primeiro acesso! Altere sua senha para continuar.' 
+        })
         
-        // Aguarda 2 segundos para o irmão ler a instrução e muda para a tela de nova senha
         setTimeout(() => {
           setTelaPrimeiroAcesso(true)
           setMensagem({ tipo: '', texto: '' })
           setCarregando(false)
         }, 2000)
-        
-      } else {
-        // Se já mudou a senha anteriormente, entra direto na sede
-        setMensagem({ tipo: 'sucesso', texto: `Aprovado! Bem-vindo de volta, ${resultado.nome_completo}. Entrando na sede...` })
-        
-        // Guarda informações básicas temporárias de sessão no localStorage (ou utilize o seu contexto)
-        localStorage.setItem('@rockelite:membro_id', resultado.membro_id)
-        localStorage.setItem('@rockelite:cargo', resultado.cargo_diretoria || 'membro')
 
+      } else {
+        setMensagem({ tipo: 'sucesso', texto: 'Autenticado! Entrando na sede...' })
+        
+        // Salva localmente o ID para compatibilidade com o restante do painel
+        if (usuario) {
+          localStorage.setItem('@rockelite:membro_id', usuario.id)
+        }
+
+        // Com o Middleware ativo, redireciona direto para o dashboard
         setTimeout(() => {
           router.push('/dashboard')
-        }, 1500)
+          router.refresh() // Força o Next.js a revalidar o middleware de rotas protegidas
+        }, 1200)
       }
 
     } catch (err) {
-      setMensagem({ tipo: 'erro', texto: 'Ocorreu um erro inesperado na autenticação.' })
+      setMensagem({ tipo: 'erro', texto: 'Erro inesperado ao tentar processar o login.' })
       setCarregando(false)
     }
   }
 
-  // 2. Executa a gravação da nova senha definitiva usando o segundo RPC
+  // 2. Grava a nova senha definitiva diretamente no Supabase Auth
   const handleDefinirNovaSenha = async (e: React.FormEvent) => {
     e.preventDefault()
     setCarregando(true)
@@ -91,33 +129,38 @@ export default function Login() {
     }
 
     if (novaSenha !== confirmarNovaSenha) {
-      setMensagem({ tipo: 'erro', texto: 'As senhas digitadas não batem. Verifique.' })
+      setMensagem({ tipo: 'erro', texto: 'As senhas digitadas não combinam.' })
       setCarregando(false)
       return
     }
 
     try {
-      const { data, error } = await supabase.rpc('alterar_senha_primeiro_acesso', {
-        p_membro_id: membroIdFocado,
-        p_nova_senha: novaSenha
+      // Atualiza a senha do usuário e DESLIGA a flag do primeiro acesso nos metadados
+      const { data, error } = await supabase.auth.updateUser({
+        password: novaSenha,
+        data: { primeiro_acesso: false } // 🔥 Remove a trava permanentemente na tabela auth.users
       })
 
-      if (error || !data) {
-        setMensagem({ tipo: 'erro', texto: 'Erro ao salvar a nova senha. Tente novamente.' })
+      if (error) {
+        setMensagem({ tipo: 'erro', texto: 'Erro ao atualizar senha no servidor: ' + error.message })
         setCarregando(false)
         return
       }
 
-      setMensagem({ tipo: 'sucesso', texto: 'Senha alterada com sucesso! Fazendo o seu primeiro login...' })
+      setMensagem({ tipo: 'sucesso', texto: 'Senha definitiva forjada com sucesso! Entrando...' })
 
-      // Após salvar, simula a entrada bem-sucedida e manda para o dashboard
+      // Grava o ID no localStorage para o dashboard carregar os dados do perfil
+      if (data?.user) {
+        localStorage.setItem('@rockelite:membro_id', data.user.id)
+      }
+
       setTimeout(() => {
-        localStorage.setItem('@rockelite:membro_id', membroIdFocado || '')
         router.push('/dashboard')
+        router.refresh()
       }, 1500)
 
     } catch (err) {
-      setMensagem({ tipo: 'erro', texto: 'Erro interno ao tentar atualizar credenciais.' })
+      setMensagem({ tipo: 'erro', texto: 'Erro interno ao atualizar credenciais.' })
       setCarregando(false)
     }
   }
@@ -147,19 +190,19 @@ export default function Login() {
           </div>
         )}
 
-        {/* FORMULÁRIO 1: TELA DE LOGIN COMUM */}
+        {/* FORMULÁRIO 1: TELA DE LOGIN COM CPF */}
         {!telaPrimeiroAcesso ? (
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">
-                E-mail do Irmão
+                CPF do Irmão
               </label>
               <input
-                type="email"
+                type="text"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="exemplo@rockelitemc.com"
+                value={cpf}
+                onChange={(e) => setCpf(formatarCPF(e.target.value))}
+                placeholder="000.000.000-00"
                 className="w-full rounded bg-zinc-950 border border-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-600 focus:outline-none transition-colors"
               />
             </div>
@@ -188,10 +231,10 @@ export default function Login() {
           </form>
         ) : (
           /* FORMULÁRIO 2: OBRIGATÓRIO PARA DEFINIÇÃO DE NOVA SENHA (PRIMEIRO ACESSO) */
-          <form onSubmit={handleDefinirNovaSenha} className="space-y-6 animate-fadeIn">
+          <form onSubmit={handleDefinirNovaSenha} className="space-y-6">
             <div className="border-b border-zinc-800 pb-3 mb-2">
               <h2 className="text-sm font-bold uppercase tracking-wider text-red-400">🚨 Nova Senha Obrigatória</h2>
-              <p className="text-[11px] text-zinc-500 mt-1">Por segurança, substitua a senha padrão 'RockElite@123' por uma chave pessoal.</p>
+              <p className="text-[11px] text-zinc-500 mt-1">Por segurança, substitua a senha provisória por uma chave pessoal definitiva.</p>
             </div>
 
             <div>
