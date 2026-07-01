@@ -4,19 +4,37 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../../lib/supabase'
 
-interface ConfigFinanceiro {
+interface VigenciaValor {
+  mes_inicio: number
+  ano_inicio: number
   valor_prospect: number
   valor_full_patch: number
-  dia_vencimento: number
 }
 
-interface MembroOpcao {
+interface ConfigFinanceiro {
+  dia_vencimento: number
+  historico_valores: VigenciaValor[]
+}
+
+interface CompetenciaPendente {
+  mes: number
+  ano: number
+  label: string
+  valor_calculado: number // Guarda o valor exato daquele mês histórico
+}
+
+interface MembroCompleto {
   id: string
   nome_completo: string
   tp_membro: string
+  data_filiacao: string
+  foto_url: string | null
+  tarjeta_escrita: string | null
+  status_ativo: boolean
+  valor_pendente?: number
+  mensalidades_pendentes?: CompetenciaPendente[]
 }
 
-// Interface para simular ou renderizar transações recentes conforme o print
 interface Transacao {
   id: string
   descricao: string
@@ -24,6 +42,14 @@ interface Transacao {
   data_movimentacao: string
   valor: number
   tipo: 'entrada' | 'saida'
+}
+
+interface MensalidadePaga {
+  id: string
+  membro_id: string
+  mes: number
+  ano: number
+  valor_pago: number
 }
 
 export default function Financeiro() {
@@ -36,26 +62,27 @@ export default function Financeiro() {
   const [salvandoConfig, setSalvandoConfig] = useState(false)
   const [lancandoMovimentacao, setLancandoMovimentacao] = useState(false)
 
-  // Estados de dados do Painel (Conforme os cards do print)
-  const [saldoGeral, setSaldoGeral] = useState(5352.15) // Valor inicial/exemplo do print ou dinâmico
-  const [entradasMes, setEntradasMes] = useState(100.00)
-  const [saidasMes, setSaidasMes] = useState(80.00)
-  const [pendenciasAReceber, setPendenciasAReceber] = useState(800.00)
+  // Estados de dados do Painel Dinâmicos
+  const [saldoGeral, setSaldoGeral] = useState(0)
+  const [entradasMes, setEntradasMes] = useState(0)
+  const [saidasMes, setSaidasMes] = useState(0)
+  const [pendenciasAReceber, setPendenciasAReceber] = useState(0)
 
-  // Dados da Sidebar de membros (Métricas do print)
-  const [totalMembros, setTotalMembros] = useState(5)
-  const [membrosEmDia, setMembrosEmDia] = useState(2)
-  const [membrosEmAtraso, setMembrosEmAtraso] = useState(3)
-  const [taxaAdimplencia, setTaxaAdimplencia] = useState(40)
+  // Dados da Sidebar de membros (Métricas Dinâmicas)
+  const [totalMembros, setTotalMembros] = useState(0)
+  const [membrosEmDiaCount, setMembrosEmDiaCount] = useState(0)
+  const [membrosEmAtrasoCount, setMembrosEmAtrasoCount] = useState(0)
+  const [taxaAdimplencia, setTaxaAdimplencia] = useState(100)
 
-  // Listas e filtros
-  const [membrosList, setMembrosList] = useState<MembroOpcao[]>([])
-  const [transacoes, setTransacoes] = useState<Transacao[]>([
-    // Mocks iniciais baseados exatamente na imagem enviada para não ficar vazio
-    { id: '1', descricao: 'Mensalidade - Matheus da Silva', categoria: 'Mensalidades', data_movimentacao: '2025-12-03', valor: 100.00, tipo: 'entrada' },
-    { id: '2', descricao: 'Gasolina', categoria: 'Combustível', data_movimentacao: '2025-12-03', valor: 80.00, tipo: 'saida' },
-    { id: '3', descricao: 'Mensalidade - Henrique Souza', categoria: 'Mensalidades', data_movimentacao: '2025-11-12', valor: 100.00, tipo: 'entrada' }
-  ])
+  // Controle de visualização interativa do Extrato Principal
+  const [visualizacaoAtiva, setVisualizacaoAtiva] = useState<'transacoes' | 'em_dia' | 'em_atraso'>('transacoes')
+
+  // Listas reais e filtradas
+  const [membrosCompletos, setMembrosCompletos] = useState<MembroCompleto[]>([])
+  const [membrosEmDiaList, setMembrosEmDiaList] = useState<MembroCompleto[]>([])
+  const [membrosEmAtrasoList, setMembrosEmAtrasoList] = useState<MembroCompleto[]>([])
+  const [transacoes, setTransacoes] = useState<Transacao[]>([])
+  
   const [filtroTexto, setFiltroTexto] = useState('')
   const [filtroTempo, setFiltroTempo] = useState('Este Mês')
   const [filtroCategoria, setFiltroCategoria] = useState('Todos')
@@ -64,9 +91,18 @@ export default function Financeiro() {
   const [exibirMenuConfig, setExibirMenuConfig] = useState(false)
   const [exibirModalNovaTransacao, setExibirModalNovaTransacao] = useState(false)
 
+  // Configuração unificada englobando o histórico
   const [config, setConfig] = useState<ConfigFinanceiro>({
-    valor_prospect: 45.00,
-    valor_full_patch: 55.00,
+    dia_vencimento: 15,
+    historico_valores: []
+  })
+
+  // Estado auxiliar para capturar o formulário de cadastro de novo reajuste
+  const [novaVigenciaForm, setNovaVigenciaForm] = useState({
+    valor_prospect: '',
+    valor_full_patch: '',
+    mes_inicio: new Date().getMonth() + 1,
+    ano_inicio: new Date().getFullYear(),
     dia_vencimento: 15
   })
 
@@ -75,10 +111,14 @@ export default function Financeiro() {
     categoria: 'mensalidade',
     descricao: '',
     valor: '',
-    membro_id: ''
+    membro_id: '',
+    competencia_selecionada: '' // Formato "MÊS-ANO-VALOR"
   })
 
-  // Guardião de Rota Blindado
+  // Lista local para preencher o combobox das mensalidades devidas
+  const [mensalidadesDisponiveis, setMensalidadesDisponiveis] = useState<CompetenciaPendente[]>([])
+
+  // Guardião de Rota
   useEffect(() => {
     const idMembro = localStorage.getItem('@rockelite:membro_id')
     if (!idMembro) {
@@ -90,132 +130,307 @@ export default function Financeiro() {
     }
   }, [router])
 
-  // Monitor Inteligente: Puxa o colete (Patente) e preenche os valores + descrição automaticamente
+  // Monitor de preenchimento automático baseado na competência selecionada
   useEffect(() => {
     if (novoLancamento.categoria === 'mensalidade' && novoLancamento.membro_id) {
-      const irmao = membrosList.find(m => m.id === novoLancamento.membro_id)
+      const irmao = membrosCompletos.find(m => m.id === novoLancamento.membro_id)
       if (irmao) {
-        // Valida se na string contem prospect ou prospero (conforme as opções da sua page membros)
-        const ehProspect = irmao.tp_membro?.toLowerCase().includes('prospect') || 
-                          irmao.tp_membro?.toLowerCase().includes('prospect_i')
+        const pendencias = irmao.mensalidades_pendentes || []
+        setMensalidadesDisponiveis(pendencias)
 
-        const valorCalculado = ehProspect ? config.valor_prospect : config.valor_full_patch
-        const mesAtualNome = new Date().toLocaleString('pt-BR', { month: 'long' })
-        const anoAtual = new Date().getFullYear()
-
-        setNovoLancamento(prev => ({
-          ...prev,
-          valor: valorCalculado.toFixed(2),
-          descricao: `Mensalidade - ${irmao.nome_completo}`
-        }))
+        if (pendencias.length > 0) {
+          // Se houver competência pendente, assume por padrão os dados da primeira da fila (mais antiga)
+          const primeiraFila = pendencias[0]
+          setNovoLancamento(prev => ({
+            ...prev,
+            valor: primeiraFila.valor_calculado.toFixed(2),
+            descricao: `Mensalidade Ref. ${primeiraFila.label} - ${irmao.nome_completo}`,
+            competencia_selecionada: `${primeiraFila.mes}-${primeiraFila.ano}-${primeiraFila.valor_calculado}`
+          }))
+        } else {
+          setNovoLancamento(prev => ({ ...prev, valor: '', descricao: `Mensalidade - ${irmao.nome_completo}`, competencia_selecionada: '' }))
+        }
       }
+    } else {
+      setMensalidadesDisponiveis([])
     }
-  }, [novoLancamento.membro_id, novoLancamento.categoria, config, membrosList])
+  }, [novoLancamento.membro_id, novoLancamento.categoria, membrosCompletos])
+
+  // Monitor para recalcular o valor se ele mudar a competência manualmente no combobox
+  const handleMudarCompetencia = (valorCombo: string) => {
+    if (!valorCombo) return
+    const [mes, ano, valorHistorico] = valorCombo.split('-')
+    const irmao = membrosCompletos.find(m => m.id === novoLancamento.membro_id)
+    
+    const nomesMeses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ]
+    const labelMes = nomesMeses[Number(mes) - 1]
+
+    setNovoLancamento(prev => ({
+      ...prev,
+      competencia_selecionada: valorCombo,
+      valor: Number(valorHistorico).toFixed(2),
+      descricao: `Mensalidade Ref. ${labelMes}/${ano} - ${irmao?.nome_completo || ''}`
+    }))
+  }
 
   const inicializarModulo = async () => {
     setCarregando(true)
-    await Promise.all([
-      carregandoConfiguracoes(),
-      carregarMembrosOpcoes(),
-      calcularFluxoDeCaixa()
-    ])
+    const configAtualizada = await carregandoConfiguracoes()
+    if (configAtualizada) {
+      await calcularPainelFinanceiro(configAtualizada)
+    }
     setCarregando(false)
   }
 
-  const carregandoConfiguracoes = async () => {
+  const carregandoConfiguracoes = async (): Promise<ConfigFinanceiro | null> => {
     try {
-      const { data } = await supabase.from('config_financeiro').select('*').eq('id', 1).single()
-      if (data) {
-        setConfig({
-          valor_prospect: Number(data.valor_prospect),
-          valor_full_patch: Number(data.valor_full_patch),
-          dia_vencimento: Number(data.dia_vencimento)
+      // Busca o dia de vencimento na tabela antiga
+      const { data: configBase } = await supabase.from('config_financeiro').select('dia_vencimento').eq('id', 1).single()
+      const diaVenc = configBase ? Number(configBase.dia_vencimento) : 15
+
+      // Busca todo o histórico de reajustes ordenados por vigência
+      const { data: historicoDb } = await supabase
+        .from('historico_valores_mensalidade')
+        .select('*')
+        .order('ano_inicio', { ascending: true })
+        .order('mes_inicio', { ascending: true })
+
+      const listaVigencias: VigenciaValor[] = (historicoDb || []).map(h => ({
+        mes_inicio: Number(h.mes_inicio),
+        ano_inicio: Number(h.ano_inicio),
+        valor_prospect: Number(h.valor_prospect),
+        valor_full_patch: Number(h.valor_full_patch)
+      }))
+
+      const payloadConfig = {
+        dia_vencimento: diaVenc,
+        historico_valores: listaVigencias
+      }
+
+      setConfig(payloadConfig)
+
+      // Alimenta os inputs do formulário com os dados mais recentes encontrados para facilitar a edição
+      if (listaVigencias.length > 0) {
+        const ultima = listaVigencias[listaVigencias.length - 1]
+        setNovaVigenciaForm({
+          valor_prospect: ultima.valor_prospect.toString(),
+          valor_full_patch: ultima.valor_full_patch.toString(),
+          mes_inicio: new Date().getMonth() + 1,
+          ano_inicio: new Date().getFullYear(),
+          dia_vencimento: diaVenc
         })
       }
+
+      return payloadConfig
     } catch (err) {
-      console.error('Erro ao buscar configurações:', err)
+      console.error('Erro ao buscar configurações históricas:', err)
     }
+    return null
   }
 
-  const carregarMembrosOpcoes = async () => {
+  // FUNÇÃO AUXILIAR MATEMÁTICA: Descobre o valor histórico exato de uma competência
+  const obterValorHistoricoMembro = (mes: number, ano: number, tipoMembro: string, historico: VigenciaValor[]): number => {
+    let valorEncontrado = tipoMembro?.toLowerCase().includes('prospect') ? 45.00 : 55.00 // Fallback seguro
+    
+    // Varre as regras de vigência e fica com a mais atualizada que seja menor ou igual à data pesquisada
+    for (const vigencia of historico) {
+      if (ano > vigencia.ano_inicio || (ano === vigencia.ano_inicio && mes >= vigencia.mes_inicio)) {
+        valorEncontrado = tipoMembro?.toLowerCase().includes('prospect') 
+          ? vigencia.valor_prospect 
+          : vigencia.valor_full_patch
+      }
+    }
+    return valorEncontrado
+  }
+
+  const calcularPainelFinanceiro = async (configFinanceira: ConfigFinanceiro) => {
     try {
-      const { data } = await supabase
+      const { data: movimentacoes } = await supabase
+        .from('caixa_movimentacoes')
+        .select('*')
+        .order('data_movimentacao', { ascending: false })
+
+      const { data: membrosDb } = await supabase
         .from('membros')
-        .select('id, nome_completo, tp_membro')
+        .select('id, nome_completo, tp_membro, data_filiacao, foto_url, tarjeta_escrita, status_ativo')
         .eq('status_ativo', true)
-        .order('nome_completo')
-      if (data) setMembrosList(data)
-    } catch (err) {
-      console.error('Erro ao listar membros:', err)
-    }
-  }
 
-  const calcularFluxoDeCaixa = async () => {
-    try {
-      const { data: movimentacoes } = await supabase.from('caixa_movimentacoes').select('*').order('data_movimentacao', { ascending: false })
-      
-      if (movimentacoes && movimentacoes.length > 0) {
-        let totalEntradas = 0
-        let totalSaidas = 0
-        let entMes = 0
-        let saiMes = 0
+      const { data: mensalidadesDb } = await supabase.from('mensalidades').select('*')
 
-        const mesAtual = new Date().getMonth()
-        const anoAtual = new Date().getFullYear()
+      const listaMembros: MembroCompleto[] = membrosDb || []
+      const listaMensalidades: MensalidadePaga[] = mensalidadesDb || []
 
-        const formatadas: Transacao[] = movimentacoes.map(mov => ({
+      let totalEntradas = 0
+      let totalSaidas = 0
+      let entMes = 0
+      let saiMes = 0
+
+      const hoje = new Date()
+      const diaAtual = hoje.getDate()
+      const mesAtual = hoje.getMonth() // 0-11
+      const anoAtual = hoje.getFullYear()
+
+      const formatadas: Transacao[] = (movimentacoes || []).map(mov => {
+        const valorNum = Number(mov.valor)
+        const dataMov = mov.data_movimentacao ? new Date(mov.data_movimentacao) : new Date()
+
+        if (mov.tipo === 'entrada') {
+          totalEntradas += valorNum
+          if (dataMov.getMonth() === mesAtual && dataMov.getFullYear() === anoAtual) {
+            entMes += valorNum
+          }
+        } else if (mov.tipo === 'saida') {
+          totalSaidas += valorNum
+          if (dataMov.getMonth() === mesAtual && dataMov.getFullYear() === anoAtual) {
+            saiMes += valorNum
+          }
+        }
+
+        return {
           id: mov.id,
           descricao: mov.descricao,
           categoria: mov.categoria === 'mensalidade' ? 'Mensalidades' : mov.categoria,
-          data_movimentacao: mov.data_movimentacao ? mov.data_movimentacao.split('T')[0] : '2026-06-30',
-          valor: Number(mov.valor),
+          data_movimentacao: mov.data_movimentacao ? mov.data_movimentacao.split('T')[0] : hoje.toISOString().split('T')[0],
+          valor: valorNum,
           tipo: mov.tipo
-        }))
+        }
+      })
 
-        movimentacoes.forEach(mov => {
-          const valorNum = Number(mov.valor)
-          // Usando fallback seguro de data se nula
-          const dataMov = mov.data_movimentacao ? new Date(mov.data_movimentacao) : new Date()
+      setTransacoes(formatadas)
+      setSaldoGeral(totalEntradas - totalSaidas)
+      setEntradasMes(entMes)
+      setSaidasMes(saiMes)
 
-          if (mov.tipo === 'entrada') {
-            totalEntradas += valorNum
-            if (dataMov.getMonth() === mesAtual && dataMov.getFullYear() === anoAtual) entMes += valorNum
-          } else if (mov.tipo === 'saida') {
-            totalSaidas += valorNum
-            if (dataMov.getMonth() === mesAtual && dataMov.getFullYear() === anoAtual) saiMes += valorNum
+      let boloPendenciasTotal = 0
+      const adimplentes: MembroCompleto[] = []
+      const inadimplentes: MembroCompleto[] = []
+
+      const nomesMeses = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+      ]
+
+      listaMembros.forEach(membro => {
+        const dataFiliacao = membro.data_filiacao ? new Date(membro.data_filiacao) : new Date()
+        
+        let anoVarredura = dataFiliacao.getFullYear()
+        let mesVarredura = dataFiliacao.getMonth()
+
+        let debitoAcumulado = 0
+        let possuiInadimplenciaVencida = false
+        const pendenciasDoMembro: CompetenciaPendente[] = []
+
+        while (anoVarredura < anoAtual || (anoVarredura === anoAtual && mesVarredura <= mesAtual)) {
+          const mesBanco = mesVarredura + 1
+
+          const jaFoiPago = listaMensalidades.some(
+            mens => mens.membro_id === membro.id && mens.mes === mesBanco && mens.ano === anoVarredura
+          )
+
+          if (!jaFoiPago) {
+            // Descobre dinamicamente qual era a regra de preço para esse mês/ano específico
+            const valorHistoricoCompetencia = obterValorHistoricoMembro(
+              mesBanco, 
+              anoVarredura, 
+              membro.tp_membro || '', 
+              configFinanceira.historico_valores
+            )
+
+            pendenciasDoMembro.push({
+              mes: mesBanco,
+              ano: anoVarredura,
+              label: `${nomesMeses[mesVarredura]} / ${anoVarredura}`,
+              valor_calculado: valorHistoricoCompetencia
+            })
+
+            const ehMesAnterior = anoVarredura < anoAtual || mesVarredura < mesAtual
+            const ehMesAtualVencido = anoVarredura === anoAtual && mesVarredura === mesAtual && diaAtual > configFinanceira.dia_vencimento
+
+            if (ehMesAnterior || ehMesAtualVencido) {
+              debitoAcumulado += valorHistoricoCompetencia
+              possuiInadimplenciaVencida = true
+            }
           }
-        })
 
-        setTransacoes(formatadas)
-        setSaldoGeral(totalEntradas - totalSaidas)
-        setEntradasMes(entMes)
-        setSaidasMes(saiMes)
+          mesVarredura++
+          if (mesVarredura > 11) {
+            mesVarredura = 0
+            anoVarredura++
+          }
+        }
+
+        const membroFormatado = {
+          ...membro,
+          valor_pendente: debitoAcumulado,
+          mensalidades_pendentes: pendenciasDoMembro
+        }
+
+        if (possuiInadimplenciaVencida) {
+          boloPendenciasTotal += debitoAcumulado
+          inadimplentes.push(membroFormatado)
+        } else {
+          adimplentes.push(membroFormatado)
+        }
+      })
+
+      setMembrosCompletos(listaMembros.map(m => {
+        const correspondenteInad = inadimplentes.find(i => i.id === m.id)
+        const correspondenteDia = adimplentes.find(d => d.id === m.id)
+        return correspondenteInad ? correspondenteInad : (correspondenteDia || { ...m, mensalidades_pendentes: [] })
+      }))
+      
+      setMembrosEmDiaList(adimplentes)
+      setMembrosEmAtrasoList(inadimplentes)
+      
+      setTotalMembros(listaMembros.length)
+      setMembrosEmDiaCount(adimplentes.length)
+      setMembrosEmAtrasoCount(inadimplentes.length)
+      setPendenciasAReceber(boloPendenciasTotal)
+
+      if (listaMembros.length > 0) {
+        const taxa = Math.round((adimplentes.length / listaMembros.length) * 100)
+        setTaxaAdimplencia(taxa)
+      } else {
+        setTaxaAdimplencia(100)
       }
+
     } catch (err) {
-      console.error('Erro ao calcular caixa:', err)
+      console.error('Erro crítico no motor financeiro:', err)
     }
   }
 
+  // GRAVAÇÃO DE CONFIGURAÇÃO DE REAJUSTES HISTÓRICOS AUTOMÁTICA
   const handleSalvarConfig = async (e: React.FormEvent) => {
     e.preventDefault()
     setSalvandoConfig(true)
     try {
-      const { error } = await supabase
-        .from('config_financeiro')
-        .update({
-          valor_prospect: config.valor_prospect,
-          valor_full_patch: config.valor_full_patch,
-          dia_vencimento: config.dia_vencimento,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', 1)
+      // 1. Atualiza o dia padrão de vencimento na tabela geral
+      await supabase.from('config_financeiro').update({ dia_vencimento: Number(novaVigenciaForm.dia_vencimento) }).eq('id', 1)
 
-      if (error) throw error
-      alert('Configurações do High Command atualizadas! ⚡')
+      // 2. Registra o novo valor histórico na tabela de vigências
+      const { error: erroInsert } = await supabase
+        .from('historico_valores_mensalidade')
+        .insert({
+          mes_inicio: Number(novaVigenciaForm.mes_inicio),
+          ano_inicio: Number(novaVigenciaForm.ano_inicio),
+          valor_prospect: Number(novaVigenciaForm.valor_prospect),
+          valor_full_patch: Number(novaVigenciaForm.valor_full_patch)
+        })
+
+      if (erroInsert) throw erroInsert
+
+      alert('Reajuste de mensalidade programado e salvo no histórico! ⚡')
       setExibirMenuConfig(false)
+      
+      const configAtualizada = await carregandoConfiguracoes()
+      if (configAtualizada) await calcularPainelFinanceiro(configAtualizada)
+
     } catch (err) {
       console.error(err)
-      alert('Erro ao salvar configurações.')
+      alert('Erro ao gravar reajuste histórico.')
     } finally {
       setSalvandoConfig(false)
     }
@@ -226,30 +441,33 @@ export default function Financeiro() {
     if (!novoLancamento.valor || Number(novoLancamento.valor) <= 0) return alert('Insira um valor válido.')
     setLancandoMovimentacao(true)
 
-    const mesAtual = new Date().getMonth() + 1
-    const anoAtual = new Date().getFullYear()
-
     try {
       let mensalidadeIdGerada = null
 
-      // 🛡️ TRAVA BLINDADA DE DUPLICIDADE PARA MENSALIDADES
       if (novoLancamento.categoria === 'mensalidade') {
         if (!novoLancamento.membro_id) {
           alert('Por favor, selecione um irmão para realizar a baixa.')
           setLancandoMovimentacao(false)
           return
         }
+        if (!novoLancamento.competencia_selecionada) {
+          alert('Por favor, selecione qual mês de referência está sendo pago.')
+          setLancandoMovimentacao(false)
+          return
+        }
+
+        const [mesEscolhido, anoEscolhido, valorOrigem] = novoLancamento.competencia_selecionada.split('-').map(Number)
 
         const { data: jaPago } = await supabase
           .from('mensalidades')
           .select('id')
           .eq('membro_id', novoLancamento.membro_id)
-          .eq('mes', mesAtual)
-          .eq('ano', anoAtual)
+          .eq('mes', mesEscolhido)
+          .eq('ano', anoEscolhido)
           .maybeSingle()
 
         if (jaPago) {
-          alert('❌ Operação Interrompida: Este irmão já consta como PAGO no mês atual!')
+          alert('❌ Operação Interrompida: Esta mensalidade específica já consta como paga!')
           setLancandoMovimentacao(false)
           return
         }
@@ -258,9 +476,9 @@ export default function Financeiro() {
           .from('mensalidades')
           .insert({
             membro_id: novoLancamento.membro_id,
-            mes: mesAtual,
-            ano: anoAtual,
-            valor_pago: Number(novoLancamento.valor)
+            mes: mesEscolhido,
+            ano: anoEscolhido,
+            valor_pago: Number(novoLancamento.valor) // Aceita alteração/desconto caso modificado na hora
           })
           .select()
           .single()
@@ -269,7 +487,6 @@ export default function Financeiro() {
         if (novaMensalidade) mensalidadeIdGerada = novaMensalidade.id
       }
 
-      // 💸 INSERE NO FLUXO DE CAIXA REAL DO BANCO
       const { error: erroCaixa } = await supabase.from('caixa_movimentacoes').insert({
         tipo: novoLancamento.tipo,
         categoria: novoLancamento.categoria,
@@ -289,10 +506,11 @@ export default function Financeiro() {
         categoria: 'mensalidade',
         descricao: '',
         valor: '',
-        membro_id: ''
+        membro_id: '',
+        competencia_selecionada: ''
       })
       
-      await calcularFluxoDeCaixa()
+      await calcularPainelFinanceiro(config)
     } catch (err) {
       console.error(err)
       alert('Erro crítico ao salvar no banco.')
@@ -303,11 +521,10 @@ export default function Financeiro() {
 
   const limparFiltros = () => {
     setFiltroTexto('')
-    setFiltroTempo('Todos')
+    setFiltroTempo('Este Mês')
     setFiltroCategoria('Todos')
   }
 
-  // Lógica de filtragem inline idêntica ao print
   const transacoesFiltradas = transacoes.filter(t => {
     if (filtroCategoria !== 'Todos' && t.categoria !== filtroCategoria) return false
     if (filtroTexto) {
@@ -327,16 +544,16 @@ export default function Financeiro() {
   return (
     <main className="min-h-screen bg-[#0d0e11] p-6 text-[#f3f4f6] md:p-10 font-sans">
       
-      {/* 1. TOPO: Título Alinhado à Esquerda e Botões Alinhados à Direita conforme Imagem */}
+      {/* TOPO DA TELA */}
       <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Financeiro</h1>
-          <p className="text-sm text-zinc-400">Gerencie as finanças do seu Moto Clube</p>
+          <p className="text-sm text-zinc-400">Gerencie as finanças do seu Moto Clube com adimplência e histórico de reajustes</p>
         </div>
 
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => calcularFluxoDeCaixa()}
+            onClick={() => calcularPainelFinanceiro(config)}
             className="flex items-center gap-1.5 rounded-lg bg-[#161920] border border-zinc-800 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
           >
             🔄 Atualizar
@@ -356,11 +573,9 @@ export default function Financeiro() {
         </div>
       </div>
 
-      {/* 2. GRID DE CARDS: Design idêntico ao print recebido */}
+      {/* PAINEL DE CARDS DINÂMICOS */}
       <div className="mb-8 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        
-        {/* Card Saldo */}
-        <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5 relative">
+        <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs font-medium">Saldo</span>
             <span className="text-sm opacity-60">📁</span>
@@ -368,10 +583,9 @@ export default function Financeiro() {
           <p className="mt-3 text-2xl font-bold text-white">
             R$ {saldoGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">Saldo atual</p>
+          <p className="mt-1 text-xs text-zinc-500">Saldo acumulado atual</p>
         </div>
 
-        {/* Card Receitas */}
         <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs font-medium">Receitas</span>
@@ -380,10 +594,9 @@ export default function Financeiro() {
           <p className="mt-3 text-2xl font-bold text-emerald-500">
             R$ {entradasMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">Este mês</p>
+          <p className="mt-1 text-xs text-zinc-500">Somatório deste mês</p>
         </div>
 
-        {/* Card Despesas */}
         <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs font-medium">Despesas</span>
@@ -392,10 +605,9 @@ export default function Financeiro() {
           <p className="mt-3 text-2xl font-bold text-[#f87171]">
             R$ {saidasMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">Este mês</p>
+          <p className="mt-1 text-xs text-zinc-500">Somatório deste mês</p>
         </div>
 
-        {/* Card Pendências */}
         <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs font-medium">Pendências</span>
@@ -404,17 +616,17 @@ export default function Financeiro() {
           <p className="mt-3 text-2xl font-bold text-amber-500">
             R$ {pendenciasAReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">A receber</p>
+          <p className="mt-1 text-xs text-zinc-500">Inadimplência retroativa absoluta</p>
         </div>
       </div>
 
-      {/* 3. BLOCO DE FILTROS INLINE (Filtros conforme o print) */}
-      <div className="mb-6 rounded-xl border border-zinc-800/60 bg-[#12141c] p-4">
-        <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-white">
-          <span>⚙️</span> Filtros
-        </div>
-        <div className="grid gap-3 grid-cols-1 md:grid-cols-4">
-          <div className="relative">
+      {/* FILTROS */}
+      {visualizacaoAtiva === 'transacoes' && (
+        <div className="mb-6 rounded-xl border border-zinc-800/60 bg-[#12141c] p-4">
+          <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-white">
+            <span>⚙️</span> Filtros de Extrato
+          </div>
+          <div className="grid gap-3 grid-cols-1 md:grid-cols-4">
             <input
               type="text"
               placeholder="Buscar transações..."
@@ -422,122 +634,214 @@ export default function Financeiro() {
               onChange={(e) => setFiltroTexto(e.target.value)}
               className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 placeholder-zinc-600"
             />
+            <select
+              value={filtroTempo}
+              onChange={(e) => setFiltroTempo(e.target.value)}
+              className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
+            >
+              <option value="Este Mês">Este Mês</option>
+              <option value="Todos">Todos os períodos</option>
+            </select>
+            <select
+              value={filtroCategoria}
+              onChange={(e) => setFiltroCategoria(e.target.value)}
+              className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
+            >
+              <option value="Todos">Todos</option>
+              <option value="Mensalidades">Mensalidades</option>
+              <option value="Combustível">Combustível</option>
+            </select>
+            <button onClick={limparFiltros} className="rounded-lg border border-zinc-800 bg-[#0d0e11] py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors">
+              Limpar Filtros
+            </button>
           </div>
-
-          <select
-            value={filtroTempo}
-            onChange={(e) => setFiltroTempo(e.target.value)}
-            className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
-          >
-            <option value="Este Mês">Este Mês</option>
-            <option value="Todos">Todos os períodos</option>
-          </select>
-
-          <select
-            value={filtroCategoria}
-            onChange={(e) => setFiltroCategoria(e.target.value)}
-            className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
-          >
-            <option value="Todos">Todos</option>
-            <option value="Mensalidades">Mensalidades</option>
-            <option value="Combustível">Combustível</option>
-          </select>
-
-          <button
-            onClick={limparFiltros}
-            className="rounded-lg border border-zinc-800 bg-[#0d0e11] py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors"
-          >
-            Limpar Filtros
-          </button>
         </div>
-      </div>
+      )}
 
-      {/* 4. DUAS COLUNAS PRINCIPAIS: Transações Recentes vs Sidebar Membros (Exatamente como o print) */}
+      {/* GRID DE DUAS COLUNAS PRINCIPAIS */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
         
-        {/* Coluna Esquerda: Lista de Transações Recentes */}
+        {/* COLUNA ESQUERDA */}
         <div className="lg:col-span-8 rounded-xl border border-zinc-800/40 bg-[#12141c]/50 p-6">
-          <h2 className="text-base font-bold text-white mb-1">$ Transações Recentes</h2>
-          <p className="text-xs text-zinc-500 mb-6">Últimas movimentações financeiras</p>
+          
+          {visualizacaoAtiva === 'transacoes' && (
+            <>
+              <h2 className="text-base font-bold text-white mb-1">$ Transações Recentes</h2>
+              <p className="text-xs text-zinc-500 mb-6">Últimas movimentações financeiras de caixa</p>
 
-          <div className="space-y-3">
-            {transacoesFiltradas.length === 0 ? (
-              <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhum registro encontrado.</p>
-            ) : (
-              transacoesFiltradas.map((t) => (
-                <div key={t.id} className="flex items-center justify-between rounded-xl bg-[#12141c] border border-zinc-800/80 p-4 hover:border-zinc-700/80 transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center text-xs font-bold ${t.tipo === 'entrada' ? 'bg-emerald-950/40 text-emerald-400' : 'bg-red-950/40 text-red-400'}`}>
-                      {t.tipo === 'entrada' ? '↗' : '↘'}
+              {/* AJUSTE VISUAL: Altura máxima definida para caber exatamente 5 transações confortavelmente. 
+                Se passar disso, a barra de rolagem é ativada suavemente.
+              */}
+              <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+                {transacoesFiltradas.length === 0 ? (
+                  <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhuma movimentação encontrada.</p>
+                ) : (
+                  transacoesFiltradas.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between rounded-xl bg-[#12141c] border border-zinc-800/80 p-4 hover:border-zinc-700/80 transition-all mr-1">
+                      <div className="flex items-center gap-3">
+                        <div className={`h-8 w-8 rounded-lg flex items-center justify-center text-xs font-bold ${t.tipo === 'entrada' ? 'bg-emerald-950/40 text-emerald-400' : 'bg-red-950/40 text-red-400'}`}>
+                          {t.tipo === 'entrada' ? '↗' : '↘'}
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-zinc-200">{t.descricao}</h4>
+                          <p className="text-[10px] text-zinc-500 mt-0.5">{t.categoria}</p>
+                          <p className="text-[9px] text-zinc-600 mt-0.5">{t.data_movimentacao}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-xs font-bold block ${t.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {t.tipo === 'entrada' ? '+' : '-'}R$ {t.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className="inline-block mt-1 text-[9px] text-emerald-500/90 bg-emerald-950/30 border border-emerald-900/40 px-2 py-0.5 rounded-full font-medium">
+                          Concluído
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-zinc-200">{t.descricao}</h4>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">{t.categoria}</p>
-                      <p className="text-[9px] text-zinc-600 mt-0.5">{t.data_movimentacao}</p>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+
+          {visualizacaoAtiva === 'em_dia' && (
+            <>
+              <div className="flex justify-between items-center mb-1">
+                <h2 className="text-base font-bold text-emerald-400">👥 Membros Regularizados (Adimplentes)</h2>
+                <button onClick={() => setVisualizacaoAtiva('transacoes')} className="text-xs font-bold uppercase text-zinc-400 hover:text-white bg-zinc-800/50 border border-zinc-700 px-3 py-1 rounded">← Ver Transações</button>
+              </div>
+              <p className="text-xs text-zinc-500 mb-6">Lista dos irmãos que estão com o colete e mensalidades em dia.</p>
+
+              <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1">
+                {membrosEmDiaList.length === 0 ? (
+                  <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhum irmão nesta categoria no momento.</p>
+                ) : (
+                  membrosEmDiaList.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between rounded-xl bg-[#12141c] border border-emerald-900/30 p-4 mr-1">
+                      <div className="flex items-center gap-3">
+                        {m.foto_url ? (
+                          <img src={m.foto_url} alt="Membro" className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
+                        ) : (
+                          <div className="h-9 w-9 rounded-full bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-zinc-600">MC</div>
+                        )}
+                        <div>
+                          <h4 className="text-xs font-bold text-white">{m.nome_completo}</h4>
+                          <span className="inline-block border border-zinc-800 bg-zinc-950 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider text-zinc-300 mt-1 font-bold">{m.tarjeta_escrita || 'Sem Tarjeta'}</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest bg-emerald-950/50 text-emerald-400 border border-emerald-900/50 px-3 py-1 rounded-full">✓ Regular</span>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <span className={`text-xs font-bold block ${t.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {t.tipo === 'entrada' ? '+' : '-'}R$ {t.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="inline-block mt-1 text-[9px] text-emerald-500/90 bg-emerald-950/30 border border-emerald-900/40 px-2 py-0.5 rounded-full font-medium">
-                      Concluído
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+
+          {visualizacaoAtiva === 'em_atraso' && (
+            <>
+              <div className="flex justify-between items-center mb-1">
+                <h2 className="text-base font-bold text-red-400">⚠️ Linha de Inadimplência</h2>
+                <button onClick={() => setVisualizacaoAtiva('transacoes')} className="text-xs font-bold uppercase text-zinc-400 hover:text-white bg-zinc-800/50 border border-zinc-700 px-3 py-1 rounded">← Ver Transações</button>
+              </div>
+              <p className="text-xs text-zinc-500 mb-6">Lista de irmãos com pendências financeiras calculadas conforme histórico de reajustes.</p>
+
+              <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1">
+                {membrosEmAtrasoList.length === 0 ? (
+                  <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhuma pendência encontrada! 🦅</p>
+                ) : (
+                  membrosEmAtrasoList.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between rounded-xl bg-[#12141c] border border-red-900/30 p-4 hover:border-red-900/60 transition-all mr-1">
+                      <div className="flex items-center gap-3">
+                        {m.foto_url ? (
+                          <img src={m.foto_url} alt="Membro" className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
+                        ) : (
+                          <div className="h-9 w-9 rounded-full bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-zinc-600">MC</div>
+                        )}
+                        <div>
+                          <h4 className="text-xs font-bold text-white">{m.nome_completo}</h4>
+                          <span className="inline-block border border-zinc-800 bg-zinc-950 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider text-zinc-300 mt-1 font-bold">{m.tarjeta_escrita || 'Sem Tarjeta'}</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-bold block text-red-400">
+                          R$ {m.valor_pendente?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        <button 
+                          onClick={() => {
+                            setNovoLancamento({
+                              tipo: 'entrada',
+                              categoria: 'mensalidade',
+                              membro_id: m.id,
+                              valor: '',
+                              descricao: '',
+                              competencia_selecionada: ''
+                            })
+                            setExibirModalNovaTransacao(true)
+                          }}
+                          className="mt-1 text-[9px] uppercase font-bold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-0.5 rounded"
+                        >
+                          💸 Dar Baixa
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+
         </div>
 
-        {/* Coluna Direita: Sidebar com Indicadores de Adimplência e Quantidade de Membros */}
+        {/* COLUNA DIREITA */}
         <div className="lg:col-span-4 rounded-xl border border-zinc-800/40 bg-[#12141c]/50 p-6 flex flex-col justify-between">
           <div>
             <h2 className="text-base font-bold text-white mb-6 flex items-center gap-2">
-              <span>👥</span> Membros
+              <span>👥</span> Gestão de Membros
             </h2>
 
-            <div className="space-y-4 text-xs font-medium">
-              <div className="flex justify-between items-center py-1">
-                <span className="text-zinc-400">Total de Membros</span>
-                <span className="text-white font-bold">{totalMembros}</span>
+            <div className="space-y-3 text-xs font-medium">
+              <div 
+                onClick={() => setVisualizacaoAtiva('transacoes')}
+                className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'transacoes' ? 'bg-[#161920] border-zinc-700' : 'border-transparent hover:bg-zinc-900/30'}`}
+              >
+                <span className="text-zinc-400">Total de Membros Ativos</span>
+                <span className="text-white font-bold text-sm">{totalMembros}</span>
               </div>
               
-              <div className="flex justify-between items-center py-1">
-                <span className="text-zinc-400">Membros em dias</span>
-                <span className="text-emerald-400 font-bold">{membrosEmDia}</span>
+              <div 
+                onClick={() => setVisualizacaoAtiva('em_dia')}
+                className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'em_dia' ? 'bg-emerald-950/20 border-emerald-800/50' : 'border-transparent hover:bg-emerald-950/10'}`}
+              >
+                <span className="text-zinc-400 flex items-center gap-1.5">🟢 Membros em dia</span>
+                <span className="text-emerald-400 font-bold text-sm">{membrosEmDiaCount} <span className="text-[10px] text-zinc-600">▶</span></span>
               </div>
 
-              <div className="flex justify-between items-center py-1">
-                <span className="text-zinc-400">Membros em atraso</span>
-                <span className="text-red-400 font-bold">{membrosEmAtraso}</span>
+              <div 
+                onClick={() => setVisualizacaoAtiva('em_atraso')}
+                className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'em_atraso' ? 'bg-red-950/20 border-red-800/50' : 'border-transparent hover:bg-red-950/10'}`}
+              >
+                <span className="text-zinc-400 flex items-center gap-1.5">🔴 Membros em atraso</span>
+                <span className="text-red-400 font-bold text-sm">{membrosEmAtrasoCount} <span className="text-[10px] text-zinc-600">▶</span></span>
               </div>
             </div>
           </div>
 
-          {/* Barra de Progresso/Métrica de Adimplência Inferior do Print */}
           <div className="pt-6 border-t border-zinc-800/60 mt-6">
             <div className="flex justify-between items-center text-xs font-medium mb-2">
-              <span className="text-zinc-400">Taxa de Adimplência</span>
+              <span className="text-zinc-400">Taxa de Adimplência Real</span>
               <span className="text-white font-bold">{taxaAdimplencia}%</span>
             </div>
             <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
-              <div 
-                className="bg-emerald-500 h-full transition-all duration-500" 
-                style={{ width: `${taxaAdimplencia}%` }}
-              />
+              <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${taxaAdimplencia}%` }} />
             </div>
           </div>
 
         </div>
       </div>
 
-      {/* ======================================================== */}
-      {/* 🪙 MODAL RETRÁTIL DE NOVO LANÇAMENTO (FORMULÁRIO SEGURO)   */}
-      {/* ======================================================== */}
+      {/* MODAL DE NOVO LANÇAMENTO */}
       {exibirModalNovaTransacao && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-[#12141c] p-6 shadow-2xl animate-fadeIn">
+          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-[#12141c] p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between border-b border-zinc-800 pb-3">
               <h3 className="text-md font-bold text-white">📝 Novo Lançamento de Caixa</h3>
               <button onClick={() => setExibirModalNovaTransacao(false)} className="text-zinc-500 hover:text-white">✕</button>
@@ -549,14 +853,14 @@ export default function Financeiro() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setNovoLancamento({ ...novoLancamento, tipo: 'entrada', categoria: 'mensalidade', membro_id: '', valor: '', descricao: '' })}
+                    onClick={() => setNovoLancamento({ ...novoLancamento, tipo: 'entrada', categoria: 'mensalidade', membro_id: '', valor: '', descricao: '', competencia_selecionada: '' })}
                     className={`py-2 rounded-lg text-xs font-bold uppercase border transition-colors ${novoLancamento.tipo === 'entrada' ? 'bg-emerald-950/30 border-emerald-500 text-emerald-400' : 'bg-[#0d0e11] border-zinc-800 text-zinc-500'}`}
                   >
                     🟢 Entrada
                   </button>
                   <button
                     type="button"
-                    onClick={() => setNovoLancamento({ ...novoLancamento, tipo: 'saida', categoria: 'sede', membro_id: '', valor: '', descricao: '' })}
+                    onClick={() => setNovoLancamento({ ...novoLancamento, tipo: 'saida', categoria: 'sede', membro_id: '', valor: '', descricao: '', competencia_selecionada: '' })}
                     className={`py-2 rounded-lg text-xs font-bold uppercase border transition-colors ${novoLancamento.tipo === 'saida' ? 'bg-red-950/30 border-red-500 text-red-400' : 'bg-[#0d0e11] border-zinc-800 text-zinc-500'}`}
                   >
                     🔴 Saída
@@ -568,14 +872,14 @@ export default function Financeiro() {
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">Categoria</label>
                 <select
                   value={novoLancamento.categoria}
-                  onChange={(e) => setNovoLancamento(prev => ({ ...prev, categoria: e.target.value, membro_id: '', valor: '', descricao: '' }))}
+                  onChange={(e) => setNovoLancamento(prev => ({ ...prev, categoria: e.target.value, membro_id: '', valor: '', descricao: '', competencia_selecionada: '' }))}
                   className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
                 >
                   {novoLancamento.tipo === 'entrada' ? (
                     <>
                       <option value="mensalidade">Mensalidade de Irmão</option>
                       <option value="colete">Venda de Colete</option>
-                      <option value="doacao">Doação Externa / Padrinho</option>
+                      <option value="doacao">Doação Externa</option>
                       <option value="evento">Arrecadação de Evento</option>
                     </>
                   ) : (
@@ -598,10 +902,37 @@ export default function Financeiro() {
                     className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
                   >
                     <option value="">Selecione o Membro...</option>
-                    {membrosList.map(m => (
+                    {membrosCompletos.map(m => (
                       <option key={m.id} value={m.id}>{m.nome_completo}</option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {/* COMBOBOX DE MENSALIDADES HISTÓRICAS DISPONÍVEIS */}
+              {novoLancamento.categoria === 'mensalidade' && novoLancamento.membro_id && (
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                    Mensalidade Ref. / Competência
+                  </label>
+                  <select
+                    required
+                    value={novoLancamento.competencia_selecionada}
+                    onChange={(e) => handleMudarCompetencia(e.target.value)}
+                    className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
+                  >
+                    <option value="">Selecione o mês devido...</option>
+                    {mensalidadesDisponiveis.map((m, idx) => (
+                      <option key={idx} value={`${m.mes}-${m.ano}-${m.valor_calculado}`}>
+                        {m.label} (Valor Regra: R$ {m.valor_calculado})
+                      </option>
+                    ))}
+                  </select>
+                  {mensalidadesDisponiveis.length === 0 && (
+                    <p className="text-[10px] text-emerald-400 mt-1 font-semibold">
+                      ✅ Este irmão está totalmente em dia no sistema!
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -638,36 +969,45 @@ export default function Financeiro() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* ⚙️ DRAWER LATERAL DE MENSALIDADES / PARÂMETROS BASE        */}
-      {/* ======================================================== */}
+      {/* DRAWER LATERAL DE CONFIGURAÇÕES / HISTÓRICO DE REAJUSTE */}
       {exibirMenuConfig && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-[#12141c] p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h3 className="text-md font-bold text-white">⚙️ Valores Base do Cofre</h3>
+              <h3 className="text-md font-bold text-white">⚙️ Programar Novo Reajuste Histórico</h3>
               <button onClick={() => setExibirMenuConfig(false)} className="text-zinc-500 hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleSalvarConfig} className="space-y-4">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Mensalidade Prospect (R$)</label>
-                <input type="number" step="0.01" required value={config.valor_prospect} onChange={(e) => setConfig({ ...config, valor_prospect: Number(e.target.value) })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-zinc-400 mb-1">Mês de Início</label>
+                  <input type="number" min="1" max="12" required value={novaVigenciaForm.mes_inicio} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, mes_inicio: Number(e.target.value) })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-zinc-400 mb-1">Ano de Início</label>
+                  <input type="number" required value={novaVigenciaForm.ano_inicio} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, ano_inicio: Number(e.target.value) })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Mensalidade Full Patch (R$)</label>
-                <input type="number" step="0.01" required value={config.valor_full_patch} onChange={(e) => setConfig({ ...config, valor_full_patch: Number(e.target.value) })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                <label className="block text-xs text-zinc-400 mb-1">Novo Valor Prospect (R$)</label>
+                <input type="number" step="0.01" required value={novaVigenciaForm.valor_prospect} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, valor_prospect: e.target.value })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
               </div>
 
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Dia Vencimento</label>
-                <input type="number" min="1" max="31" required value={config.dia_vencimento} onChange={(e) => setConfig({ ...config, dia_vencimento: parseInt(e.target.value, 10) || config.dia_vencimento })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                <label className="block text-xs text-zinc-400 mb-1">Novo Valor Full Patch (R$)</label>
+                <input type="number" step="0.01" required value={novaVigenciaForm.valor_full_patch} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, valor_full_patch: e.target.value })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Dia Vencimento Geral</label>
+                <input type="number" min="1" max="31" required value={novaVigenciaForm.dia_vencimento} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, dia_vencimento: parseInt(e.target.value, 10) || 15 })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
               </div>
 
               <div className="pt-2 flex gap-2">
                 <button type="button" onClick={() => setExibirMenuConfig(false)} className="w-1/2 py-2 rounded-lg bg-zinc-800 text-xs font-semibold hover:bg-zinc-700">Fechar</button>
-                <button type="submit" disabled={salvandoConfig} className="w-1/2 py-2 rounded-lg bg-emerald-600 text-xs font-semibold text-white hover:bg-emerald-700">{salvandoConfig ? 'Salvando...' : 'Salvar Alterações'}</button>
+                <button type="submit" disabled={salvandoConfig} className="w-1/2 py-2 rounded-lg bg-emerald-600 text-xs font-semibold text-white hover:bg-emerald-700">{salvandoConfig ? 'Salvando...' : 'Gravar Vigência'}</button>
               </div>
             </form>
           </div>

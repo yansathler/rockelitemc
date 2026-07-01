@@ -9,6 +9,7 @@ interface Membro {
   nome_completo: string
   telefone_pessoal: string
   data_nascimento: string
+  data_filiacao: string // 📅 Sincronizado com o banco de dados
   sexo: string | null
   cpf: string
   foto_url: string | null
@@ -55,6 +56,7 @@ export default function Membros() {
   const [nomeCompleto, setNomeCompleto] = useState('')
   const [telefonePessoal, setTelefonePessoal] = useState('')
   const [dataNascimento, setDataNascimento] = useState('')
+  const [dataFiliacao, setDataFiliacao] = useState(new Date().toISOString().split('T')[0]) // 📅 Estado adicionado com fallback de hoje
   const [sexo, setSexo] = useState('Masculino')
   const [cpf, setCpf] = useState('')
   const [fotoUrl, setFotoUrl] = useState('')
@@ -86,6 +88,7 @@ export default function Membros() {
     setNomeCompleto('')
     setTelefonePessoal('')
     setDataNascimento('')
+    setDataFiliacao(new Date().toISOString().split('T')[0]) // 📅 Reseta para a data atual
     setSexo('Masculino')
     setCpf('')
     setFotoUrl('')
@@ -221,6 +224,7 @@ export default function Membros() {
     setNomeCompleto(membro.nome_completo || '')
     setTelefonePessoal(membro.telefone_pessoal || '')
     setDataNascimento(membro.data_nascimento || '')
+    setDataFiliacao(membro.data_filiacao ? membro.data_filiacao.split('T')[0] : new Date().toISOString().split('T')[0]) // 📅 Sincroniza valor na edição
     setSexo(membro.sexo || 'Masculino')
     setCpf(membro.cpf || '')
     setFotoUrl(membro.foto_url || '')
@@ -247,7 +251,6 @@ export default function Membros() {
     setExibirFormulario(true)
   }
 
-  // 🔥 NOVA FUNÇÃO: Dispara a rota PUT para resetar as credenciais do usuário selecionado
   const handleResetarSenha = async () => {
     if (!idEdicao) return
     
@@ -286,7 +289,7 @@ export default function Membros() {
 
     const cpfLimpo = cpf.replace(/\D/g, '')
 
-    if (!nomeCompleto || !telefonePessoal || !dataNascimento || cpfLimpo.length !== 11) {
+    if (!nomeCompleto || !telefonePessoal || !dataNascimento || !dataFiliacao || cpfLimpo.length !== 11) {
       setErroForm('Preencha os campos obrigatórios (*) da Aba Pessoal e certifique-se de que o CPF está completo.')
       setAbaAtiva('pessoal')
       setSalvandoDados(false)
@@ -301,7 +304,6 @@ export default function Membros() {
 
     let idRegistro = idEdicao
 
-    // ⚡ PASSO CRÍTICO: Se for um NOVO MEMBRO, cria primeiro na API interna de Autenticação via CPF
     if (!idEdicao) {
       try {
         const resAuth = await fetch('/api/membros', {
@@ -309,7 +311,7 @@ export default function Membros() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             cpf: cpfLimpo,
-            senhaProvisoria: 'RockElite@123' // Senha padrão para o primeiro acesso
+            senhaProvisoria: 'RockElite@123'
           })
         })
 
@@ -319,7 +321,6 @@ export default function Membros() {
           throw new Error(dadosAuth.error || 'Falha ao forjar autenticação no servidor.')
         }
 
-        // Captura o ID real gerado pelo gerenciador de usuários do Supabase Auth
         idRegistro = dadosAuth.user.id
       } catch (err: any) {
         setErroForm('Erro na Infraestrutura de Autenticação: ' + err.message)
@@ -328,7 +329,6 @@ export default function Membros() {
       }
     }
 
-    // Realiza o upload se houver foto selecionada
     const urlDaFotoFinal = await fazerUploadFoto(idRegistro!)
     if (arquivoFoto && !urlDaFotoFinal) {
       setSalvandoDados(false)
@@ -341,8 +341,9 @@ export default function Membros() {
       nome_completo: nomeCompleto,
       telefone_pessoal: telefonePessoal,
       data_nascimento: dataNascimento,
+      data_filiacao: dataFiliacao, // 📅 Gravando com sucesso na nuvem
       sexo,
-      cpf: cpfLimpo, // Guarda o CPF limpo para consistência
+      cpf: cpfLimpo,
       foto_url: urlDaFotoFinal,
       tarjeta_tipo: tarjetaTipo,
       tarjeta_escrita: tarjetaEscrita || null,
@@ -445,14 +446,12 @@ export default function Membros() {
         
         {exibirFormulario && (
           <div className="rounded-xl border border-zinc-900 bg-zinc-900/30 p-6 lg:col-span-5 h-fit max-h-[85vh] overflow-y-auto">
-            {/* ⚡ CABEÇALHO DA FICHA ALTERADO: Alinhamento flexbox para comportar o novo botão de Reset */}
             <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
               <h2 className="text-lg font-bold text-white">
                 {idEdicao ? '📝 Alterar Cadastro' : 'Ficha de Alistamento'}
               </h2>
               {idEdicao && (
                 <div className="flex items-center gap-2">
-                  {/* 🔥 NOVO BOTÃO DE RESET DE SENHA */}
                   <button
                     type="button"
                     onClick={handleResetarSenha}
@@ -519,44 +518,51 @@ export default function Membros() {
                       </select>
                     </div>
                   </div>
+                  
+                  {/* 📅 LINHA DE DATAS AJUSTADA: Inclusão do campo dinâmico de Filiação */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Data Nascimento *</label>
                       <input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" required />
                     </div>
-                    
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">
-                        Fotografia do Integrante {enviandoFoto && '⏳ (Enviando...)'}
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-full bg-zinc-950 border border-zinc-900 flex items-center justify-center overflow-hidden shrink-0">
-                          {arquivoFoto ? (
-                            <img src={URL.createObjectURL(arquivoFoto)} alt="Preview" className="h-full w-full object-cover" />
-                          ) : fotoUrl ? (
-                            <img src={fotoUrl} alt="Atual" className="h-full w-full object-cover" />
-                          ) : (
-                            <span className="text-[10px] text-zinc-600 font-bold">MC</span>
-                          )}
-                        </div>
-
-                        <label className="w-full flex items-center justify-center rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 hover:text-white hover:border-zinc-700 cursor-pointer transition-colors text-center font-semibold uppercase tracking-wider truncate">
-                          {arquivoFoto ? '📸 Alterar' : '📷 Tirar/Escolher'}
-                          <input 
-                            type="file" 
-                            accept="image/*" 
-                            capture="environment"
-                            onChange={(e) => {
-                              if (e.target.files && e.target.files[0]) {
-                                setArquivoFoto(e.target.files[0])
-                              }
-                            }}
-                            className="hidden" 
-                          />
-                        </label>
-                      </div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Data de Filiação (MC) *</label>
+                      <input type="date" value={dataFiliacao} onChange={(e) => setDataFiliacao(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none cursor-pointer" required />
                     </div>
                   </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">
+                      Fotografia do Integrante {enviandoFoto && '⏳ (Enviando...)'}
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-full bg-zinc-950 border border-zinc-900 flex items-center justify-center overflow-hidden shrink-0">
+                        {arquivoFoto ? (
+                          <img src={URL.createObjectURL(arquivoFoto)} alt="Preview" className="h-full w-full object-cover" />
+                        ) : fotoUrl ? (
+                          <img src={fotoUrl} alt="Atual" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="text-[10px] text-zinc-600 font-bold">MC</span>
+                        )}
+                      </div>
+
+                      <label className="w-full flex items-center justify-center rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 hover:text-white hover:border-zinc-700 cursor-pointer transition-colors text-center font-semibold uppercase tracking-wider truncate">
+                        {arquivoFoto ? '📸 Alterar' : '📷 Tirar/Escolher'}
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          capture="environment"
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              setArquivoFoto(e.target.files[0])
+                            }
+                          }}
+                          className="hidden" 
+                        />
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="border-t border-zinc-900 pt-3 grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Identificação Tarjeta</label>
