@@ -74,16 +74,29 @@ export default function DetalheRota({ params }: { params: Promise<{ id: string }
   return (
     <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10 space-y-8">
       
-      {/* Header com Botão Voltar */}
-      <div className="flex justify-between items-start border-b border-zinc-900 pb-6">
+      {/* Header com Ações e Título */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start justify-between border-b border-zinc-900 pb-6">
         <div>
           <span className="text-[10px] font-mono font-black text-zinc-600 block">CADASTRO Nº {String(rota.numero_cadastro).padStart(3, '0')} (2026)</span>
           <h1 className="text-2xl font-black text-white tracking-tight mt-1">{rota.nome_rota}</h1>
           <p className="text-xs text-zinc-400 mt-1">🗺️ Itinerário: {rota.itinerario_resumido}</p>
         </div>
-        <button onClick={() => router.push('/dashboard')} className="border border-zinc-800 bg-zinc-900 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider text-zinc-400 hover:text-white">
-          ← Voltar
-        </button>
+        
+        {/* Bloco Tático de Botões */}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button 
+            onClick={() => router.push(`/rotas/editar/${id}`)} 
+            className="flex items-center gap-1.5 border border-purple-900 bg-purple-950/20 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider text-purple-400 hover:bg-purple-950/40 transition-all"
+          >
+            ⚙️ Editar Rota
+          </button>
+          <button 
+            onClick={() => router.push('/dashboard')} 
+            className="border border-zinc-800 bg-zinc-900 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-all"
+          >
+            ← Voltar
+          </button>
+        </div>
       </div>
 
       {/* Grid de Métricas Consolidadas */}
@@ -156,7 +169,7 @@ export default function DetalheRota({ params }: { params: Promise<{ id: string }
           <div className="bg-zinc-950/40 p-3 rounded border border-zinc-900">
             <span className="text-[10px] text-zinc-500 font-bold block uppercase">Balizador</span>
             <span className="text-zinc-200 font-semibold block mt-1">{rota.balizador?.nome_completo || 'Não Escalado'}</span>
-            {rota.balizador_id && <span className="text-[9px] bg-zinc-900 text-zinc-500 px-1 rounded font-bold uppercase mt-1 inline-block">🚗 Via {rota.balizador_veiculo}</span>}
+            {rota.balizador_id && <span className="text-[9px] bg-zinc-900 text-zinc-500 px-1 rounded font-bold uppercase mt-1 inline-block">🚗 {rota.balizador_veiculo === 'moto' ? 'Moto' : rota.balizador_veiculo === 'carro' ? 'Carro' : 'Triciclo'}</span>}
           </div>
         </div>
       </div>
@@ -180,7 +193,9 @@ export default function DetalheRota({ params }: { params: Promise<{ id: string }
           <div className="space-y-2">
             {alertas.map((al) => (
               <div key={al.id} className="text-xs bg-zinc-950/60 p-3 rounded border border-red-900/30 text-zinc-300">
-                <span className="font-black text-red-500 uppercase tracking-widest text-[9px] mr-2">[{al.tipo_alerta}]</span>
+                <span className="font-black text-red-500 uppercase tracking-widest text-[9px] mr-2">
+                  {al.tipo_alerta === 'perigo' ? '[CRÍTICO]' : al.tipo_alerta === 'atencao' ? '[ATENÇÃO]' : '[INFO]'}
+                </span>
                 {al.descricao}
               </div>
             ))}
