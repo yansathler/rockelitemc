@@ -23,6 +23,16 @@ interface TransacaoResumo {
   data_movimentacao: string
 }
 
+// Interface para as rotas no Dashboard
+interface RotaResumo {
+  id: string
+  numero_cadastro: number
+  nome_rota: string
+  km_total: number
+  tempo_total_geral: string
+  tipo_role: string
+}
+
 export default function Dashboard() {
   const router = useRouter()
   const supabase = createClient()
@@ -36,11 +46,13 @@ export default function Dashboard() {
   const [totalMembros, setTotalMembros] = useState(0)
   const [totalAniversariantes, setTotalAniversariantes] = useState(0)
   const [saldoCaixa, setSaldoCaixa] = useState(0)
+  const [totalRotas, setTotalRotas] = useState(0)
 
-  // Controle da área dinâmica lateral e histórico do mês
-  const [abaDinamica, setAbaDinamica] = useState<'atividade' | 'aniversariantes'>('atividade')
+  // Controle da área dinâmica lateral (caixa, aniversariantes ou rotas)
+  const [abaDinamica, setAbaDinamica] = useState<'caixa' | 'aniversariantes' | 'rotas'>('caixa')
   const [listaAniversariantes, setListaAniversariantes] = useState<MembroResumo[]>([])
   const [movimentacoesMes, setMovimentacoesMes] = useState<TransacaoResumo[]>([])
+  const [rotasRecentes, setRotasRecentes] = useState<RotaResumo[]>([])
 
   // Nomes dos meses para exibir dinamicamente no título
   const nomesMeses = [
@@ -144,6 +156,17 @@ export default function Dashboard() {
         setMovimentacoesMes(listaFiltradaMes)
       }
 
+      // 3. Busca de Rotas Táticas para Contador e Feed Dinâmico
+      const { data: rotas, error: erroRotas } = await supabase
+        .from('rotas')
+        .select('id, numero_cadastro, nome_rota, km_total, tempo_total_geral, tipo_role')
+        .order('created_at', { ascending: false })
+
+      if (!erroRotas && rotas) {
+        setTotalRotas(rotas.length)
+        setRotasRecentes(rotas.slice(0, 5)) // Últimas 5 para o feed dinâmico
+      }
+
     } catch (err) {
       console.error('Erro ao sincronizar dados com a sede:', err)
     } finally {
@@ -205,8 +228,8 @@ export default function Dashboard() {
         
         {/* Card Membros */}
         <div 
-          onClick={() => setAbaDinamica('atividade')}
-          className={`rounded-xl border p-5 cursor-pointer transition-all ${abaDinamica === 'atividade' ? 'border-blue-900 bg-blue-950/10' : 'border-zinc-900 bg-zinc-900/40 hover:border-zinc-800'}`}
+          onClick={() => setAbaDinamica('aniversariantes')}
+          className="rounded-xl border border-zinc-900 bg-zinc-900/40 p-5 cursor-pointer hover:border-blue-900 transition-all"
         >
           <div className="flex items-center justify-between text-zinc-400">
             <span className="text-xs font-semibold uppercase tracking-wider">Membros</span>
@@ -218,14 +241,19 @@ export default function Dashboard() {
           <p className="mt-1 text-xs text-zinc-500">Irmãos ativos no banco</p>
         </div>
 
-        {/* Card Viagens */}
-        <div className="rounded-xl border border-zinc-900 bg-zinc-900/40 p-5">
+        {/* Card Rotas Táticas (Antigo Viagens) */}
+        <div 
+          onClick={() => setAbaDinamica('rotas')}
+          className={`rounded-xl border p-5 cursor-pointer transition-all ${abaDinamica === 'rotas' ? 'border-purple-900 bg-purple-950/10' : 'border-zinc-900 bg-zinc-900/40 hover:border-purple-800'}`}
+        >
           <div className="flex items-center justify-between text-zinc-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Viagens</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Rotas Mapeadas</span>
             <div className="rounded bg-purple-950/40 p-2 text-purple-400 text-sm">🛣️</div>
           </div>
-          <p className="mt-2 text-3xl font-bold text-white">0</p>
-          <p className="mt-1 text-xs text-zinc-500">Pendentes de aprovação</p>
+          <p className="mt-2 text-3xl font-bold text-white">
+            {carregando ? '...' : totalRotas}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">Reconhecimentos salvos</p>
         </div>
 
         {/* Card Mensagens */}
@@ -255,8 +283,8 @@ export default function Dashboard() {
 
         {/* Card Financeiro TOTAL INTEGRADO */}
         <div 
-          onClick={() => router.push('/financeiro')}
-          className="rounded-xl border border-zinc-900 bg-zinc-900/40 p-5 cursor-pointer hover:border-emerald-900 transition-all"
+          onClick={() => setAbaDinamica('caixa')}
+          className={`rounded-xl border p-5 cursor-pointer transition-all ${abaDinamica === 'caixa' ? 'border-emerald-900 bg-emerald-950/10' : 'border-zinc-900 bg-zinc-900/40 hover:border-emerald-900'}`}
         >
           <div className="flex items-center justify-between text-zinc-400">
             <span className="text-xs font-semibold uppercase tracking-wider">Caixa Geral</span>
@@ -278,10 +306,10 @@ export default function Dashboard() {
       {/* Seção Inferior: Painel Dinâmico vs Ações Rápidas */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
         
-        {/* Lado Esquerdo: Área Dinâmica (Atividade Recente Filtrada do Mês OU Aniversariantes) */}
+        {/* Lado Esquerdo: Área Dinâmica Multifuncional (Caixa, Aniversariantes ou Rotas) */}
         <div className="rounded-xl border border-zinc-900 bg-zinc-900/20 p-6 lg:col-span-7 flex flex-col justify-between">
           
-          {abaDinamica === 'atividade' ? (
+          {abaDinamica === 'caixa' && (
             <>
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2 mb-1">
@@ -315,7 +343,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Botão de redirecionamento para o Financeiro */}
               <div className="mt-6 pt-4 border-t border-zinc-900">
                 <button 
                   onClick={() => router.push('/financeiro')}
@@ -325,16 +352,17 @@ export default function Dashboard() {
                 </button>
               </div>
             </>
-          ) : (
+          )}
+
+          {abaDinamica === 'aniversariantes' && (
             <>
-              {/* CONTEXTO DOS ANIVERSARIANTES DO MÊS */}
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">
                     <span>🎂</span> Aniversariantes de {mesAtualNome}
                   </h2>
                   <button 
-                    onClick={() => setAbaDinamica('atividade')} 
+                    onClick={() => setAbaDinamica('caixa')} 
                     className="text-xs font-semibold uppercase text-zinc-500 hover:text-white transition-colors"
                   >
                     Ver Caixa ✕
@@ -348,7 +376,7 @@ export default function Dashboard() {
                   ) : listaAniversariantes.length === 0 ? (
                     <p className="text-sm text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg">
                       Nenhum irmão faz aniversário este mês. 🛣️
-                  </p>
+                    </p>
                   ) : (
                     listaAniversariantes.map((membro) => (
                       <div 
@@ -372,6 +400,59 @@ export default function Dashboard() {
                             {formatarDataLegivel(membro.data_nascimento)}
                           </span>
                         </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div />
+            </>
+          )}
+
+          {abaDinamica === 'rotas' && (
+            <>
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <span>🛣️</span> Reconhecimentos de Rotas Recentes
+                  </h2>
+                  <button 
+                    onClick={() => router.push('/rotas/novo')} 
+                    className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded transition-colors"
+                  >
+                    ⚡ Nova Rota
+                  </button>
+                </div>
+                <p className="text-xs text-zinc-500 mb-6">Últimos planejamentos táticos de asfalto cadastrados</p>
+
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                  {carregando ? (
+                    <p className="text-sm text-zinc-500 italic">Sincronizando rotas...</p>
+                  ) : rotasRecentes.length === 0 ? (
+                    <p className="text-sm text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg">
+                      Nenhuma rota tática mapeada até o momento.
+                    </p>
+                  ) : (
+                    rotasRecentes.map((rota) => (
+                      <div
+                        key={rota.id}
+                        onClick={() => router.push(`/rotas/${rota.id}`)}
+                        className="flex items-center justify-between p-3 rounded-lg border border-zinc-900 bg-zinc-950/40 hover:bg-zinc-900/40 cursor-pointer transition-all group animate-fade-in"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-mono text-zinc-600 font-bold">#{String(rota.numero_cadastro).padStart(3, '0')}</span>
+                            <h4 className="text-xs font-bold text-zinc-200 group-hover:text-purple-400 transition-colors">{rota.nome_rota}</h4>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-zinc-500">
+                            <span>🛣️ {Number(rota.km_total).toFixed(1)} km</span>
+                            <span>⏱️ {rota.tempo_total_geral}</span>
+                          </div>
+                        </div>
+
+                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${rota.tipo_role === 'Curto' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900/40' : 'bg-red-950 text-red-400 border border-red-900/40'}`}>
+                          {rota.tipo_role}
+                        </span>
                       </div>
                     ))
                   )}
@@ -407,10 +488,13 @@ export default function Dashboard() {
               <p className="text-xs text-zinc-500 mt-1">Baixas e mensalidades</p>
             </button>
 
-            <button className="flex flex-col items-start rounded-xl border border-zinc-900 bg-zinc-900/30 p-5 text-left hover:border-zinc-700 transition-colors group">
+            <button 
+              onClick={() => setAbaDinamica('rotas')}
+              className="flex flex-col items-start rounded-xl border border-zinc-900 bg-zinc-900/30 p-5 text-left hover:border-purple-700 transition-colors group"
+            >
               <div className="mb-4 rounded-lg bg-purple-950/40 p-3 text-purple-400 group-hover:scale-105 transition-transform">🛣️</div>
-              <h4 className="text-sm font-bold text-white">Gerenciar Viagens</h4>
-              <p className="text-xs text-zinc-500 mt-1">Ver viagens</p>
+              <h4 className="text-sm font-bold text-white">Rotas Táticas</h4>
+              <p className="text-xs text-zinc-500 mt-1">Ver reconhecimentos</p>
             </button>
 
             <button className="flex flex-col items-start rounded-xl border border-zinc-900 bg-zinc-900/30 p-5 text-left hover:border-zinc-700 transition-colors group">
