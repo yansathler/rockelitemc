@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../../lib/supabase'
 
-// Interface para as sedes vindas do banco (seletor global)
 interface Sede {
   id: string
   nome: string
@@ -13,7 +12,6 @@ interface Sede {
   tipo: string
 }
 
-// Interface para a nova listagem de Chapters mapeados
 interface ChapterResumo {
   id: string
   nome: string
@@ -49,13 +47,22 @@ interface RotaResumo {
   tipo_role: string
 }
 
+interface EventoResumo {
+  id: string
+  titulo: string
+  tipo_evento: 'Role' | 'Bate-Papo' | 'Confraria'
+  data_evento: string
+  horario_inicio: string
+  ponto_encontro: string
+  status: 'Agendado' | 'Concluido' | 'Cancelado'
+}
+
 export default function CentralDeComandos() {
   const router = useRouter()
   const supabase = createClient()
   
   const [ocultarFinanceiro, setOcultarFinanceiro] = useState(false)
   const [carregando, setCarregando] = useState(true)
-  
   const [autenticado, setAutenticado] = useState<boolean | null>(null) 
   
   const [sedes, setSedes] = useState<Sede[]>([])
@@ -66,15 +73,17 @@ export default function CentralDeComandos() {
   const [totalAniversariantes, setTotalAniversariantes] = useState(0)
   const [saldoCaixa, setSaldoCaixa] = useState(0)
   const [totalRotas, setTotalRotas] = useState(0)
-  const [totalChapters, setTotalChapters] = useState(0) // 🏁 Nova Métrica
+  const [totalChapters, setTotalChapters] = useState(0)
+  const [totalEventosMes, setTotalEventosMes] = useState(0)
 
-  // Controle da área dinâmica lateral
-  const [abaDinamica, setAbaDinamica] = useState<'membros' | 'caixa' | 'aniversariantes' | 'rotas' | 'chapters'>('caixa')
+  // Controle da área de consulta dinâmica lateral (Apenas leitura visual)
+  const [abaDinamica, setAbaDinamica] = useState<'membros' | 'caixa' | 'aniversariantes' | 'rotas' | 'chapters' | 'eventos'>('caixa')
   const [listaMembros, setListaMembros] = useState<MembroResumo[]>([])
   const [listaAniversariantes, setListaAniversariantes] = useState<MembroResumo[]>([])
   const [movimentacoesMes, setMovimentacoesMes] = useState<TransacaoResumo[]>([])
   const [rotasRecentes, setRotasRecentes] = useState<RotaResumo[]>([])
-  const [listaChapters, setListaChapters] = useState<ChapterResumo[]>([]) // 🏁 Nova Lista
+  const [listaChapters, setListaChapters] = useState<ChapterResumo[]>([])
+  const [eventosMes, setEventosMes] = useState<EventoResumo[]>([])
 
   const nomesMeses = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -129,7 +138,11 @@ export default function CentralDeComandos() {
   const buscarDadosDoBanco = async (idSede?: string) => {
     setCarregando(true)
     try {
-      // 1. Busca todos os membros ativos
+      const hoje = new Date()
+      const mesAtualNum = hoje.getMonth() + 1
+      const anoAtualJs = hoje.getFullYear()
+
+      // 1. Membros ativos
       const { data: membrosAtivos, error: erroMembros } = await supabase
         .from('membros')
         .select('id, nome_completo, telefone_pessoal, data_nascimento, foto_url')
@@ -139,13 +152,11 @@ export default function CentralDeComandos() {
       if (!erroMembros && membrosAtivos) {
         setTotalMembros(membrosAtivos.length)
         setListaMembros(membrosAtivos)
-
-        const mesAtual = new Date().getMonth() + 1
         
         const aniversariantesFiltrados = membrosAtivos.filter((membro) => {
           if (!membro.data_nascimento) return false
           const mesMembro = parseInt(membro.data_nascimento.split('-')[1], 10)
-          return mesMembro === mesAtual
+          return mesMembro === mesAtualNum
         })
 
         aniversariantesFiltrados.sort((a, b) => {
@@ -158,7 +169,7 @@ export default function CentralDeComandos() {
         setTotalAniversariantes(aniversariantesFiltrados.length)
       }
 
-      // 2. Busca o histórico de fluxo de caixa
+      // 2. Fluxo de caixa
       const { data: movimentacoes, error: erroCaixa } = await supabase
         .from('caixa_movimentacoes')
         .select('*')
@@ -168,10 +179,6 @@ export default function CentralDeComandos() {
         let totalEntradas = 0
         let totalSaidas = 0
         const listaFiltradaMes: TransacaoResumo[] = []
-
-        const hoje = new Date()
-        const mesAtualJs = hoje.getMonth()
-        const anoAtualJs = hoje.getFullYear()
 
         movimentacoes.forEach(mov => {
           const valorNum = Number(mov.valor)
@@ -183,7 +190,7 @@ export default function CentralDeComandos() {
             totalSaidas += valorNum
           }
 
-          if (dataMov.getMonth() === mesAtualJs && dataMov.getFullYear() === anoAtualJs) {
+          if (dataMov.getMonth() + 1 === mesAtualNum && dataMov.getFullYear() === anoAtualJs) {
             listaFiltradaMes.push({
               id: mov.id,
               descricao: mov.descricao,
@@ -199,7 +206,7 @@ export default function CentralDeComandos() {
         setMovimentacoesMes(listaFiltradaMes)
       }
 
-      // 3. Busca de Rotas Táticas
+      // 3. Rotas Táticas
       const { data: rotas, error: erroRotas } = await supabase
         .from('rotas')
         .select('id, numero_cadastro, nome_rota, km_total, tempo_total_geral, tipo_role')
@@ -210,7 +217,7 @@ export default function CentralDeComandos() {
         setRotasRecentes(rotas.slice(0, 5))
       }
 
-      // 🏁 4. Sincronização do Novo Ecossistema de Chapters
+      // 4. Chapters
       const { data: chapters, error: erroChapters } = await supabase
         .from('chapters')
         .select('id, nome, cidade, estado, tipo_chapter, status_operacional')
@@ -218,9 +225,31 @@ export default function CentralDeComandos() {
 
       if (!erroChapters && chapters) {
         setListaChapters(chapters)
-        // Filtra apenas os que estão operando ativos no asfalto para a métrica superior
         const ativos = chapters.filter(c => c.status_operacional === 'Ativo')
         setTotalChapters(ativos.length)
+      }
+
+      // 5. Eventos Oficiais do Mês
+      const { data: eventos, error: erroEventos } = await supabase
+        .from('eventos')
+        .select('id, titulo, tipo_evento, data_evento, horario_inicio, ponto_encontro, status')
+
+      if (!erroEventos && eventos) {
+        const filtradosMes = eventos.filter(e => {
+          if (!e.data_evento) return false
+          const mesEvt = parseInt(e.data_evento.split('-')[1], 10)
+          const anoEvt = parseInt(e.data_evento.split('-')[0], 10)
+          return mesEvt === mesAtualNum && anoEvt === anoAtualJs
+        })
+
+        filtradosMes.sort((a, b) => {
+          const dataA = new Date(`${a.data_evento}T${a.horario_inicio || '00:00:00'}`)
+          const dataB = new Date(`${b.data_evento}T${b.horario_inicio || '00:00:00'}`)
+          return dataA.getTime() - dataB.getTime()
+        })
+
+        setEventosMes(filtradosMes)
+        setTotalEventosMes(filtradosMes.length)
       }
 
     } catch (err) {
@@ -256,7 +285,6 @@ export default function CentralDeComandos() {
       
       {/* 🟢 BLOCO 1: CABEÇALHO TÁTICO & SELETOR MULTI-SEDE GLOBAL */}
       <div className="flex flex-col justify-between gap-4 border-b border-zinc-900 pb-6 sm:flex-row sm:items-center">
-        
         <div className="flex items-center gap-4">
           <img 
             src="/logo_remc.png" 
@@ -304,7 +332,7 @@ export default function CentralDeComandos() {
         </div>
       </div>
 
-      {/* 📊 Grid de Resumos (Expandido para 6 colunas no desktop) */}
+      {/* 📊 GRID DE RESUMOS / SELETORES DO MURAL */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-6">
         
         {/* Card Membros */}
@@ -314,27 +342,23 @@ export default function CentralDeComandos() {
         >
           <div className="flex items-center justify-between text-zinc-500">
             <span className="text-[10px] font-bold uppercase tracking-wider">Membros Comando</span>
-            <div className="rounded bg-blue-950/40 p-1.5 text-blue-400 text-xs group-hover:scale-105 transition-transform">👥</div>
+            <div className="rounded bg-blue-950/40 p-1.5 text-blue-400 text-xs">👥</div>
           </div>
-          <p className="mt-2 text-2xl font-black text-white font-mono">
-            {carregando ? '...' : totalMembros}
-          </p>
-          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Irmãos ativos na base geral</p>
+          <p className="mt-2 text-2xl font-black text-white font-mono">{carregando ? '...' : totalMembros}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Ver no mural analítico</p>
         </div>
 
-        {/* 🏁 NOVO CARD: CHAPTERS ATIVAS */}
+        {/* Chapters Ativas */}
         <div 
           onClick={() => setAbaDinamica('chapters')}
           className={`rounded-xl border p-4 cursor-pointer transition-all group ${abaDinamica === 'chapters' ? 'border-cyan-900 bg-cyan-950/10' : 'border-zinc-900 bg-zinc-900/30 hover:border-cyan-900/50'}`}
         >
           <div className="flex items-center justify-between text-zinc-500">
             <span className="text-[10px] font-bold uppercase tracking-wider">Chapters Ativas</span>
-            <div className="rounded bg-cyan-950/40 p-1.5 text-cyan-400 text-xs group-hover:scale-105 transition-transform">🏁</div>
+            <div className="rounded bg-cyan-950/40 p-1.5 text-cyan-400 text-xs">🏁</div>
           </div>
-          <p className="mt-2 text-2xl font-black text-white font-mono">
-            {carregando ? '...' : totalChapters}
-          </p>
-          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Frentes ativas mapeadas</p>
+          <p className="mt-2 text-2xl font-black text-white font-mono">{carregando ? '...' : totalChapters}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Ver no mural analítico</p>
         </div>
 
         {/* Card Rotas Táticas */}
@@ -344,22 +368,23 @@ export default function CentralDeComandos() {
         >
           <div className="flex items-center justify-between text-zinc-500">
             <span className="text-[10px] font-bold uppercase tracking-wider">Planos de Estrada</span>
-            <div className="rounded bg-purple-950/40 p-1.5 text-purple-400 text-xs group-hover:scale-105 transition-transform">🛣️</div>
+            <div className="rounded bg-purple-950/40 p-1.5 text-purple-400 text-xs">🛣️</div>
           </div>
-          <p className="mt-2 text-2xl font-black text-white font-mono">
-            {carregando ? '...' : totalRotas}
-          </p>
-          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Reconhecimentos salvos</p>
+          <p className="mt-2 text-2xl font-black text-white font-mono">{carregando ? '...' : totalRotas}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Ver no mural analítico</p>
         </div>
 
-        {/* Slot: Alerta de Eventos do Mês */}
-        <div className="rounded-xl border border-zinc-900 bg-zinc-900/30 p-4 group cursor-not-allowed">
+        {/* Card Eventos do Mês */}
+        <div 
+          onClick={() => setAbaDinamica('eventos')}
+          className={`rounded-xl border p-4 cursor-pointer transition-all group ${abaDinamica === 'eventos' ? 'border-orange-900 bg-orange-950/10' : 'border-zinc-900 bg-zinc-900/30 hover:border-orange-900/50'}`}
+        >
           <div className="flex items-center justify-between text-zinc-500">
             <span className="text-[10px] font-bold uppercase tracking-wider">Eventos do Mês</span>
-            <div className="rounded bg-orange-950/30 p-1.5 text-orange-400 text-xs">📅</div>
+            <div className="rounded bg-orange-950/40 p-1.5 text-orange-400 text-xs">📅</div>
           </div>
-          <p className="mt-2 text-2xl font-black text-white font-mono">0</p>
-          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Agenda activa na sede</p>
+          <p className="mt-2 text-2xl font-black text-white font-mono">{carregando ? '...' : totalEventosMes}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Ver no mural analítico</p>
         </div>
 
         {/* Card Aniversariantes */}
@@ -369,15 +394,13 @@ export default function CentralDeComandos() {
         >
           <div className="flex items-center justify-between text-zinc-500">
             <span className="text-[10px] font-bold uppercase tracking-wider">Aniversariantes</span>
-            <div className="rounded bg-amber-950/40 p-1.5 text-amber-400 text-xs group-hover:scale-105 transition-transform">🎂</div>
+            <div className="rounded bg-amber-950/40 p-1.5 text-amber-400 text-xs">🎂</div>
           </div>
-          <p className="mt-2 text-2xl font-black text-white font-mono">
-            {carregando ? '...' : totalAniversariantes}
-          </p>
-          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Mês de {mesAtualNome}</p>
+          <p className="mt-2 text-2xl font-black text-white font-mono">{carregando ? '...' : totalAniversariantes}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Ver no mural analítico</p>
         </div>
 
-        {/* Card Financeiro TOTAL INTEGRADO */}
+        {/* Card Financeiro */}
         <div 
           onClick={() => setAbaDinamica('caixa')}
           className={`rounded-xl border p-4 cursor-pointer transition-all group ${abaDinamica === 'caixa' ? 'border-emerald-900 bg-emerald-950/10' : 'border-zinc-900 bg-zinc-900/30 hover:border-emerald-900/50'}`}
@@ -394,7 +417,7 @@ export default function CentralDeComandos() {
           <p className="mt-2 text-xl font-black text-emerald-400 font-mono">
             {ocultarFinanceiro ? '••••••' : `R$ ${saldoCaixa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
           </p>
-          <p className="mt-2 text-[9px] text-zinc-500 uppercase">Saldo real consolidado ↗</p>
+          <p className="mt-2 text-[9px] text-zinc-500 uppercase">Ver no mural analítico</p>
         </div>
 
       </div>
@@ -402,40 +425,64 @@ export default function CentralDeComandos() {
       {/* 🟡 BLOCO 2: MIOLO OPERACIONAL */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
         
-        {/* COLUNA DA ESQUERDA (Quadro Dinâmico Adaptado) */}
+        {/* COLUNA DA ESQUERDA: MURAL DE CONSULTA ANALÍTICA (SEM BOTÕES OU CLIQUES INTERNOS) */}
         <div className="lg:col-span-7">
-          
           <div className="rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 min-h-[380px] flex flex-col justify-between">
             
-            {/* 🏁 NOVA ABA DINÂMICA: TERRITÓRIOS E CHAPTERS REMC */}
+            {/* Mural: Eventos */}
+            {abaDinamica === 'eventos' && (
+              <div>
+                <div className="mb-1 border-l-2 border-orange-500 pl-3">
+                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">📅 Mural Analítico de Eventos Oficiais</h2>
+                </div>
+                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Cronograma e comboios previstos para {mesAtualNome}</p>
+
+                <div className="space-y-2 max-h-[280px] overflow-y-auto pr-2">
+                  {carregando ? (
+                    <p className="text-xs text-zinc-500 italic uppercase">Buscando dados...</p>
+                  ) : eventosMes.length === 0 ? (
+                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">Nenhuma atividade agendada para este mês.</p>
+                  ) : (
+                    eventosMes.map((evt) => (
+                      <div key={evt.id} className="flex items-center justify-between p-3 rounded-lg border border-zinc-900 bg-zinc-950/40">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[8px] font-black uppercase px-1.5 py-0.2 rounded ${evt.tipo_evento === 'Role' ? 'bg-purple-950/50 text-purple-400' : evt.tipo_evento === 'Bate-Papo' ? 'bg-blue-950/50 text-blue-400' : 'bg-amber-950/50 text-amber-400'}`}>
+                              {evt.tipo_evento === 'Role' ? '⚡ Rolê' : evt.tipo_evento === 'Bate-Papo' ? '🍺 Bate-Papo' : '🦅 Confraria'}
+                            </span>
+                            <h4 className="text-xs font-bold text-zinc-200">{evt.titulo}</h4>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-zinc-500">
+                            <span className="font-mono text-zinc-400">📅 {formatarDataLegivel(evt.data_evento)} às {evt.horario_inicio.substring(0, 5)}</span>
+                            <span className="max-w-[200px] truncate italic">📍 {evt.ponto_encontro}</span>
+                          </div>
+                        </div>
+                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${evt.status === 'Agendado' ? 'bg-zinc-900 text-zinc-500' : evt.status === 'Concluido' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
+                          {evt.status}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Mural: Chapters */}
             {abaDinamica === 'chapters' && (
               <div>
-                <div className="mb-1 flex items-center justify-between border-l-2 border-cyan-500 pl-3">
-                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">
-                    🏁 Alistamento de Territórios (Chapters)
-                  </h2>
-                  <button 
-                    onClick={() => setAbaDinamica('caixa')} 
-                    className="text-[10px] font-black uppercase text-zinc-500 hover:text-white transition-colors"
-                  >
-                    Fechar ✕
-                  </button>
+                <div className="mb-1 border-l-2 border-cyan-500 pl-3">
+                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">🏁 Mural Analítico de Chapters</h2>
                 </div>
-                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Frentes operacionais e de expansão mapeadas</p>
+                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Frentes operacionais e territoriais registradas</p>
 
                 <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2">
                   {carregando ? (
-                    <p className="text-xs text-zinc-500 italic uppercase">Rastreando praças...</p>
+                    <p className="text-xs text-zinc-500 italic uppercase">Buscando dados...</p>
                   ) : listaChapters.length === 0 ? (
-                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">
-                      Nenhuma filial ou chapter registrado no sistema.
-                    </p>
+                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">Nenhuma filial registrada.</p>
                   ) : (
                     listaChapters.map((chap) => (
-                      <div 
-                        key={chap.id}
-                        className="flex items-center justify-between rounded-lg border border-zinc-900 bg-zinc-950/40 p-3 hover:border-zinc-800 transition-colors"
-                      >
+                      <div key={chap.id} className="flex items-center justify-between rounded-lg border border-zinc-900 bg-zinc-950/40 p-3">
                         <div>
                           <h4 className="text-xs font-bold text-white flex items-center gap-2">
                             {chap.nome}
@@ -445,12 +492,9 @@ export default function CentralDeComandos() {
                           </h4>
                           <p className="text-[10px] text-zinc-500 mt-0.5">📍 {chap.cidade} / {chap.estado}</p>
                         </div>
-
-                        <div className="text-right">
-                          <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono ${chap.tipo_chapter === 'Chapter' ? 'bg-cyan-950 text-cyan-400 border border-cyan-900/40' : 'bg-zinc-900 text-zinc-400'}`}>
-                            {chap.tipo_chapter}
-                          </span>
-                        </div>
+                        <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded font-mono bg-zinc-900 text-zinc-400 border border-zinc-800">
+                          {chap.tipo_chapter}
+                        </span>
                       </div>
                     ))
                   )}
@@ -458,35 +502,22 @@ export default function CentralDeComandos() {
               </div>
             )}
 
-            {/* ABA: ALISTAMENTO GERAL DE MEMBROS ACTIVOS */}
+            {/* Mural: Membros */}
             {abaDinamica === 'membros' && (
               <div>
-                <div className="mb-1 flex items-center justify-between border-l-2 border-blue-500 pl-3">
-                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">
-                    👥 Alistamento Geral de Membros
-                  </h2>
-                  <button 
-                    onClick={() => setAbaDinamica('caixa')} 
-                    className="text-[10px] font-black uppercase text-zinc-500 hover:text-white transition-colors"
-                  >
-                    Fechar ✕
-                  </button>
+                <div className="mb-1 border-l-2 border-blue-500 pl-3">
+                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">👥 Mural Analítico de Efetivo</h2>
                 </div>
-                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Efetivo militar ativo e mapeado no motoclube</p>
+                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Lista resumida de irmãos ativos mapeados na base</p>
 
                 <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2">
                   {carregando ? (
-                    <p className="text-xs text-zinc-500 italic uppercase">Carregando alistamento...</p>
+                    <p className="text-xs text-zinc-500 italic uppercase">Buscando dados...</p>
                   ) : listaMembros.length === 0 ? (
-                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">
-                      Nenhum irmão ativo encontrado na base.
-                    </p>
+                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">Nenhum irmão ativo encontrado.</p>
                   ) : (
                     listaMembros.map((membro) => (
-                      <div 
-                        key={membro.id}
-                        className="flex items-center justify-between rounded-lg border border-zinc-900 bg-zinc-950/40 p-3 hover:border-zinc-800 transition-colors"
-                      >
+                      <div key={membro.id} className="flex items-center justify-between rounded-lg border border-zinc-900 bg-zinc-950/40 p-3">
                         <div className="flex items-center gap-3">
                           {membro.foto_url ? (
                             <img src={membro.foto_url} alt={membro.nome_completo} className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
@@ -498,12 +529,9 @@ export default function CentralDeComandos() {
                             <p className="text-[10px] text-zinc-500">{membro.telefone_pessoal || 'Sem Telefone'}</p>
                           </div>
                         </div>
-
-                        <div className="text-right">
-                          <span className="text-[9px] text-zinc-500 uppercase font-mono tracking-wider">
-                            Nasc: {membro.data_nascimento ? formatarDataLegivel(membro.data_nascimento).substring(0, 5) : '••/••'}
-                          </span>
-                        </div>
+                        <span className="text-[9px] text-zinc-500 uppercase font-mono">
+                          Nasc: {membro.data_nascimento ? formatarDataLegivel(membro.data_nascimento).substring(0, 5) : '••/••'}
+                        </span>
                       </div>
                     ))
                   )}
@@ -511,19 +539,19 @@ export default function CentralDeComandos() {
               </div>
             )}
 
-            {/* ABA: FLUXO DE CAIXA */}
+            {/* Mural: Fluxo de Caixa */}
             {abaDinamica === 'caixa' && (
               <div>
-                <h2 className="text-xs font-bold text-white uppercase tracking-wider border-l-2 border-emerald-500 pl-3 flex items-center justify-between mb-1">
-                  <span>🕒 Extrato de Caixa da Competência</span>
-                </h2>
-                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Atividades registradas exclusivamente em {mesAtualNome}</p>
+                <div className="mb-1 border-l-2 border-emerald-500 pl-3">
+                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">🕒 Mural Analítico de Finanças</h2>
+                </div>
+                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Movimentações consolidadas registradas em {mesAtualNome}</p>
                 
                 <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2">
                   {carregando ? (
-                    <p className="text-xs text-zinc-500 italic uppercase">Sincronizando extrato...</p>
+                    <p className="text-xs text-zinc-500 italic uppercase">Buscando dados...</p>
                   ) : movimentacoesMes.length === 0 ? (
-                    <p className="text-xs text-zinc-500 italic p-6 text-center border border-dashed border-zinc-900 rounded-lg uppercase">Nenhuma movimentação financeira este mês.</p>
+                    <p className="text-xs text-zinc-500 italic p-6 text-center border border-dashed border-zinc-900 rounded-lg uppercase">Nenhum registro financeiro este mês.</p>
                   ) : (
                     movimentacoesMes.map((t) => (
                       <div key={t.id} className="flex items-center justify-between rounded-lg border border-zinc-900/80 bg-zinc-950/30 p-3">
@@ -546,35 +574,22 @@ export default function CentralDeComandos() {
               </div>
             )}
 
-            {/* ABA: ANIVERSARIANTES */}
+            {/* Mural: Aniversariantes */}
             {abaDinamica === 'aniversariantes' && (
               <div>
-                <div className="mb-1 flex items-center justify-between border-l-2 border-amber-500 pl-3">
-                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">
-                    🎂 Ciclo de Aniversariantes
-                  </h2>
-                  <button 
-                    onClick={() => setAbaDinamica('caixa')} 
-                    className="text-[10px] font-black uppercase text-zinc-500 hover:text-white transition-colors"
-                  >
-                    Fechar ✕
-                  </button>
+                <div className="mb-1 border-l-2 border-amber-500 pl-3">
+                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">🎂 Mural de Aniversariantes do Mês</h2>
                 </div>
-                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Irmãos celebrando aniversário na competência atual</p>
+                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Irmãos celebrando aniversário em {mesAtualNome}</p>
 
                 <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2">
                   {carregando ? (
-                    <p className="text-xs text-zinc-500 italic uppercase">Buscando na sede...</p>
+                    <p className="text-xs text-zinc-500 italic uppercase">Buscando dados...</p>
                   ) : listaAniversariantes.length === 0 ? (
-                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">
-                      Nenhum irmão faz aniversário este mês. 🛣️
-                    </p>
+                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">Nenhum aniversário este mês.</p>
                   ) : (
                     listaAniversariantes.map((membro) => (
-                      <div 
-                        key={membro.id}
-                        className="flex items-center justify-between rounded-lg border border-zinc-900 bg-zinc-950/40 p-3 hover:border-zinc-800 transition-colors"
-                      >
+                      <div key={membro.id} className="flex items-center justify-between rounded-lg border border-zinc-900 bg-zinc-950/40 p-3">
                         <div className="flex items-center gap-3">
                           {membro.foto_url ? (
                             <img src={membro.foto_url} alt={membro.nome_completo} className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
@@ -586,12 +601,9 @@ export default function CentralDeComandos() {
                             <p className="text-[10px] text-zinc-500">{membro.telefone_pessoal}</p>
                           </div>
                         </div>
-
-                        <div className="text-right">
-                          <span className="text-[10px] font-black text-amber-400 bg-amber-950/30 border border-amber-900/40 px-2 py-0.5 rounded font-mono">
-                            {formatarDataLegivel(membro.data_nascimento)}
-                          </span>
-                        </div>
+                        <span className="text-[10px] font-black text-amber-400 bg-amber-950/30 border border-amber-900/40 px-2 py-0.5 rounded font-mono">
+                          {formatarDataLegivel(membro.data_nascimento)}
+                        </span>
                       </div>
                     ))
                   )}
@@ -599,48 +611,33 @@ export default function CentralDeComandos() {
               </div>
             )}
 
-            {/* ABA: ROTAS */}
+            {/* Mural: Rotas */}
             {abaDinamica === 'rotas' && (
               <div>
-                <div className="mb-1 flex items-center justify-between border-l-2 border-purple-500 pl-3">
-                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">
-                    🛣️ Reconhecimentos de Rotas Recentes
-                  </h2>
-                  <button 
-                    onClick={() => router.push('/rotas/novo')} 
-                    className="bg-purple-950/60 border border-purple-800 hover:bg-purple-900 text-purple-400 font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded transition-colors"
-                  >
-                    ⚡ Nova Rota
-                  </button>
+                <div className="mb-1 border-l-2 border-purple-500 pl-3">
+                  <h2 className="text-xs font-bold text-white uppercase tracking-wider">🛣️ Mural Analítico de Rotas Mapeadas</h2>
                 </div>
-                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Últimos reconhecimentos táticos de asfalto cadastrados</p>
+                <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Histórico dos últimos reconhecimentos de estrada salvos</p>
 
                 <div className="space-y-2 max-h-[280px] overflow-y-auto pr-2">
                   {carregando ? (
-                    <p className="text-xs text-zinc-500 italic uppercase">Sincronizando rotas...</p>
+                    <p className="text-xs text-zinc-500 italic uppercase">Buscando dados...</p>
                   ) : rotasRecentes.length === 0 ? (
-                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">
-                      Nenhuma rota tática mapeada até o momento.
-                    </p>
+                    <p className="text-xs text-zinc-500 italic text-center p-4 border border-dashed border-zinc-900 rounded-lg uppercase">Nenhuma rota tática localizada.</p>
                   ) : (
                     rotasRecentes.map((rota) => (
-                      <div
-                        key={rota.id}
-                        onClick={() => router.push(`/rotas/${rota.id}`)}
-                        className="flex items-center justify-between p-3 rounded-lg border border-zinc-900 bg-zinc-950/40 hover:bg-zinc-900/40 cursor-pointer transition-all group"
-                      >
+                      <div key={rota.id} className="flex items-center justify-between p-3 rounded-lg border border-zinc-900 bg-zinc-950/40">
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
                             <span className="text-[9px] font-mono text-zinc-600 font-bold">#{String(rota.numero_cadastro).padStart(3, '0')}</span>
-                            <h4 className="text-xs font-bold text-zinc-200 group-hover:text-purple-400 transition-colors">{rota.nome_rota}</h4>
+                            <h4 className="text-xs font-bold text-zinc-200">{rota.nome_rota}</h4>
                           </div>
                           <div className="flex items-center gap-3 text-[10px] text-zinc-500">
                             <span>🛣️ {Number(rota.km_total).toFixed(1)} km</span>
                             <span>⏱️ {rota.tempo_total_geral}</span>
                           </div>
                         </div>
-
-                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${rota.tipo_role === 'Curto' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900/40' : 'bg-red-950 text-red-400 border border-red-900/40'}`}>
+                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${rota.tipo_role === 'Curto' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
                           {rota.tipo_role}
                         </span>
                       </div>
@@ -650,78 +647,79 @@ export default function CentralDeComandos() {
               </div>
             )}
           </div>
-
         </div>
 
-        {/* 📋 COLUNA DA DIREITA (Quadro de Cadastros Operacionais Compactado) */}
+        {/* 📋 COLUNA DA DIREITA: ATALHOS DIRETOS PARA MÓDULOS DE GESTÃO E LISTAGEM */}
         <div className="lg:col-span-5">
           <div className="rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 h-full flex flex-col justify-between">
             <div>
-              <h2 className="text-xs font-bold text-white uppercase tracking-wider mb-1 border-l-2 border-zinc-700 pl-3">Quadro de Cadastros Rápidos</h2>
-              <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Inclusão de novos registros e dados no ecossistema</p>
+              <h2 className="text-xs font-bold text-white uppercase tracking-wider mb-1 border-l-2 border-zinc-700 pl-3">Módulos Administrativos</h2>
+              <p className="text-[11px] text-zinc-500 mb-6 uppercase tracking-wide">Painéis de controle, auditorias e lançamentos</p>
               
-              {/* Grid de comandos redimensionado e otimizado */}
               <div className="grid gap-2.5 grid-cols-2">
+                
+                {/* Gestão de Membros */}
                 <button 
-                  onClick={() => router.push('/membros/novo')}
+                  onClick={() => router.push('/membros')}
                   className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-blue-700 transition-colors group"
                 >
-                  <div className="mb-2 rounded-md bg-blue-950/40 p-1.5 text-blue-400 group-hover:scale-105 transition-transform text-[11px]">➕👥</div>
-                  <h4 className="text-[11px] font-bold text-white">Novo Membro</h4>
-                  <p className="text-[9px] text-zinc-500 mt-0.5">Admitir irmão na base</p>
+                  <div className="mb-2 rounded-md bg-blue-950/40 p-1.5 text-blue-400 group-hover:scale-105 transition-transform text-[11px]">👥</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão de Membros</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Mapear efetivo e perfis</p>
                 </button>
 
+                {/* Gestão de Finanças */}
                 <button 
                   onClick={() => router.push('/financeiro')}
                   className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-emerald-700 transition-colors group"
                 >
-                  <div className="mb-2 rounded-md bg-emerald-950/40 p-1.5 text-emerald-400 group-hover:scale-105 transition-transform text-[11px]">➕💵</div>
-                  <h4 className="text-[11px] font-bold text-white">Lançar Caixa</h4>
-                  <p className="text-[9px] text-zinc-500 mt-0.5">Mensalidades e fluxo</p>
+                  <div className="mb-2 rounded-md bg-emerald-950/40 p-1.5 text-emerald-400 group-hover:scale-105 transition-transform text-[11px]">💵</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão de Finanças</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Balancetes e fluxos de caixa</p>
                 </button>
 
+                {/* Gestão de Rotas */}
                 <button 
-                  onClick={() => router.push('/rotas/novo')}
+                  onClick={() => router.push('/rotas')}
                   className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-purple-700 transition-colors group"
                 >
-                  <div className="mb-2 rounded-md bg-purple-950/40 p-1.5 text-purple-400 group-hover:scale-105 transition-transform text-[11px]">➕🛣️</div>
-                  <h4 className="text-[11px] font-bold text-white">Lançar Rota</h4>
-                  <p className="text-[9px] text-zinc-500 mt-0.5">Mapear novo asfalto</p>
+                  <div className="mb-2 rounded-md bg-purple-950/40 p-1.5 text-purple-400 group-hover:scale-105 transition-transform text-[11px]">🛣️</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão de Rotas</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Coordenadas e tempos</p>
                 </button>
 
-                {/* 🏁 GATILHO ADICIONADO: NOVO CHAPTER */}
+                {/* Gestão de Chapters */}
                 <button 
-                  onClick={() => router.push('/chapters/novo')}
+                  onClick={() => router.push('/chapters')}
                   className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-cyan-700 transition-colors group"
                 >
-                  <div className="mb-2 rounded-md bg-cyan-950/40 p-1.5 text-cyan-400 group-hover:scale-105 transition-transform text-[11px]">➕🏁</div>
-                  <h4 className="text-[11px] font-bold text-white">Novo Chapter</h4>
-                  <p className="text-[9px] text-zinc-500 mt-0.5">Bandeirar nova praça</p>
+                  <div className="mb-2 rounded-md bg-cyan-950/40 p-1.5 text-cyan-400 group-hover:scale-105 transition-transform text-[11px]">🏁</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão de Chapters</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Alinhamento de sub-sedes</p>
                 </button>
 
+                {/* Gestão de Eventos */}
                 <button 
-                  onClick={() => router.push('/eventos/novo')}
-                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-orange-700 transition-colors group cursor-not-allowed opacity-50"
-                  disabled
+                  onClick={() => router.push('/eventos')}
+                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-orange-700 transition-colors group"
                 >
-                  <div className="mb-2 rounded-md bg-orange-950/40 p-1.5 text-orange-400 group-hover:scale-105 transition-transform text-[11px]">➕📅</div>
-                  <h4 className="text-[11px] font-bold text-white">Criar Evento</h4>
-                  <p className="text-[9px] text-zinc-500 mt-0.5">Rolês e reuniões</p>
+                  <div className="mb-2 rounded-md bg-orange-950/40 p-1.5 text-orange-400 group-hover:scale-105 transition-transform text-[11px]">📅</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão de Eventos</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Grade mensal e cronograma</p>
                 </button>
 
+                {/* Botão Bar (Mantido Bloqueado) */}
                 <button 
-                  onClick={() => router.push('/bar/novo')}
-                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-red-700 transition-colors group cursor-not-allowed opacity-50"
+                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left cursor-not-allowed opacity-50"
                   disabled
                 >
-                  <div className="mb-2 rounded-md bg-red-950/40 p-1.5 text-red-400 group-hover:scale-105 transition-transform text-[11px]">➕🍺</div>
-                  <h4 className="text-[11px] font-bold text-white">Lançar no Bar</h4>
-                  <p className="text-[9px] text-zinc-500 mt-0.5">Estoque ou comanda</p>
+                  <div className="mb-2 rounded-md bg-red-950/40 p-1.5 text-red-400 text-[11px]">🍺</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão do Bar</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Estoque e comandas</p>
                 </button>
               </div>
             </div>
           </div>
-
         </div>
 
       </div>

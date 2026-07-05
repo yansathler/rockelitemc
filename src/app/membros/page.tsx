@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '../../lib/supabase'
 
 interface Membro {
@@ -9,7 +10,7 @@ interface Membro {
   nome_completo: string
   telefone_pessoal: string
   data_nascimento: string
-  data_filiacao: string // 📅 Sincronizado com o banco de dados
+  data_filiacao: string 
   sexo: string | null
   cpf: string
   foto_url: string | null
@@ -31,18 +32,27 @@ interface Membro {
   status_ativo: boolean
   cargo_diretoria: string | null
   vinculo_membro_id: string | null
+  chapter_id: string 
+}
+
+interface Chapter {
+  id: string
+  nome: string
 }
 
 export default function Membros() {
+  const router = useRouter()
   const supabase = createClient()
   
   const [membros, setMembros] = useState<Membro[]>([])
+  const [chapters, setChapters] = useState<Chapter[]>([])
   const [carregando, setCarregando] = useState(true)
   const [salvandoDados, setSalvandoDados] = useState(false)
   const [exibirFormulario, setExibirFormulario] = useState(false)
   const [abaAtiva, setAbaAtiva] = useState<'pessoal' | 'endereco' | 'saude'>('pessoal')
   
   const [filtroStatus, setFiltroStatus] = useState<'todos' | 'ativos' | 'inativos'>('todos')
+  const [chapterSelecionada, setChapterSelecionada] = useState<string>('todas')
   const [filtroTexto, setFiltroTexto] = useState('')
 
   const [idEdicao, setIdEdicao] = useState<string | null>(null)
@@ -56,7 +66,7 @@ export default function Membros() {
   const [nomeCompleto, setNomeCompleto] = useState('')
   const [telefonePessoal, setTelefonePessoal] = useState('')
   const [dataNascimento, setDataNascimento] = useState('')
-  const [dataFiliacao, setDataFiliacao] = useState(new Date().toISOString().split('T')[0]) // 📅 Estado adicionado com fallback de hoje
+  const [dataFiliacao, setDataFiliacao] = useState(new Date().toISOString().split('T')[0]) 
   const [sexo, setSexo] = useState('Masculino')
   const [cpf, setCpf] = useState('')
   const [fotoUrl, setFotoUrl] = useState('')
@@ -78,6 +88,7 @@ export default function Membros() {
   const [statusAtivo, setStatusAtivo] = useState(true)
   const [cargoDiretoria, setCargoDiretoria] = useState('membro')
   const [vinculoMembroId, setVinculoMembroId] = useState('')
+  const [chapterIdForm, setChapterIdForm] = useState('') 
 
   const [erroForm, setErroForm] = useState('')
 
@@ -88,7 +99,7 @@ export default function Membros() {
     setNomeCompleto('')
     setTelefonePessoal('')
     setDataNascimento('')
-    setDataFiliacao(new Date().toISOString().split('T')[0]) // 📅 Reseta para a data atual
+    setDataFiliacao(new Date().toISOString().split('T')[0]) 
     setSexo('Masculino')
     setCpf('')
     setFotoUrl('')
@@ -110,6 +121,7 @@ export default function Membros() {
     setStatusAtivo(true)
     setCargoDiretoria('membro')
     setVinculoMembroId('')
+    setChapterIdForm(chapters[0]?.id || '') 
     setErroForm('')
   }
 
@@ -155,22 +167,42 @@ export default function Membros() {
     }
   }
 
-  const buscarMembros = async () => {
+  const inicializarDados = async () => {
     setCarregando(true)
-    const { data, error } = await supabase
+    
+    const { data: dataChapters } = await supabase
+      .from('chapters')
+      .select('id, nome')
+      .order('nome', { ascending: true })
+
+    if (dataChapters) {
+      setChapters(dataChapters)
+      if (dataChapters.length > 0) setChapterIdForm(dataChapters[0].id)
+    }
+
+    const { data: dataMembros } = await supabase
       .from('membros')
       .select('*')
       .order('nome_completo', { ascending: true })
 
-    if (!error && data) setMembros(data)
+    if (dataMembros) setMembros(dataMembros)
+    
     setCarregando(false)
   }
 
   useEffect(() => {
-    buscarMembros()
+    inicializarDados()
   }, [])
 
-  const membrosFiltrados = membros.filter((membro) => {
+  const membrosFiltradosPorChapter = membros.filter(m => 
+    chapterSelecionada === 'todas' ? true : m.chapter_id === chapterSelecionada
+  )
+
+  const qtdTodos = membrosFiltradosPorChapter.length
+  const qtdAtivos = membrosFiltradosPorChapter.filter(m => m.status_ativo).length
+  const qtdInativos = membrosFiltradosPorChapter.filter(m => !m.status_ativo).length
+
+  const membrosFiltradosTabela = membrosFiltradosPorChapter.filter((membro) => {
     if (filtroStatus === 'ativos' && !membro.status_ativo) return false
     if (filtroStatus === 'inativos' && membro.status_ativo) return false
 
@@ -224,7 +256,7 @@ export default function Membros() {
     setNomeCompleto(membro.nome_completo || '')
     setTelefonePessoal(membro.telefone_pessoal || '')
     setDataNascimento(membro.data_nascimento || '')
-    setDataFiliacao(membro.data_filiacao ? membro.data_filiacao.split('T')[0] : new Date().toISOString().split('T')[0]) // 📅 Sincroniza valor na edição
+    setDataFiliacao(membro.data_filiacao ? membro.data_filiacao.split('T')[0] : new Date().toISOString().split('T')[0]) 
     setSexo(membro.sexo || 'Masculino')
     setCpf(membro.cpf || '')
     setFotoUrl(membro.foto_url || '')
@@ -246,6 +278,7 @@ export default function Membros() {
     setStatusAtivo(membro.status_ativo)
     setCargoDiretoria(membro.cargo_diretoria || 'membro')
     setVinculoMembroId(membro.vinculo_membro_id || '')
+    setChapterIdForm(membro.chapter_id)
     
     setAbaAtiva('pessoal')
     setExibirFormulario(true)
@@ -273,7 +306,7 @@ export default function Membros() {
         alert('⚡ Chave forjada! A senha voltou para "RockElite@123" e a trava de primeiro acesso foi reativada.')
         limparCampos()
         setExibirFormulario(false)
-        buscarMembros()
+        inicializarDados()
       }
     } catch (err: any) {
       alert('Erro na infraestrutura do servidor: ' + err.message)
@@ -289,8 +322,8 @@ export default function Membros() {
 
     const cpfLimpo = cpf.replace(/\D/g, '')
 
-    if (!nomeCompleto || !telefonePessoal || !dataNascimento || !dataFiliacao || cpfLimpo.length !== 11) {
-      setErroForm('Preencha os campos obrigatórios (*) da Aba Pessoal e certifique-se de que o CPF está completo.')
+    if (!nomeCompleto || !telefonePessoal || !dataNascimento || !dataFiliacao || !chapterIdForm || cpfLimpo.length !== 11) {
+      setErroForm('Preencha os campos obrigatórios (*) da Aba Pessoal e valide a Chapter escolhida.')
       setAbaAtiva('pessoal')
       setSalvandoDados(false)
       return
@@ -341,7 +374,7 @@ export default function Membros() {
       nome_completo: nomeCompleto,
       telefone_pessoal: telefonePessoal,
       data_nascimento: dataNascimento,
-      data_filiacao: dataFiliacao, // 📅 Gravando com sucesso na nuvem
+      data_filiacao: dataFiliacao, 
       sexo,
       cpf: cpfLimpo,
       foto_url: urlDaFotoFinal,
@@ -363,6 +396,7 @@ export default function Membros() {
       status_ativo: statusAtivo,
       cargo_diretoria: cargoDiretoria || null,
       vinculo_membro_id: tpMembro === 'Membros_espelho' ? vinculoMembroId : null,
+      chapter_id: chapterIdForm
     }
 
     let resultado
@@ -376,11 +410,11 @@ export default function Membros() {
     setSalvandoDados(false)
 
     if (resultado.error) {
-      setErroForm('Cadastro de credenciais ok, mas houve um erro ao atualizar o perfil: ' + resultado.error.message)
+      setErroForm('Erro ao salvar cadastro do integrante: ' + resultado.error.message)
     } else {
       limparCampos()
       setExibirFormulario(false)
-      buscarMembros()
+      inicializarDados()
     }
   }
 
@@ -414,40 +448,119 @@ export default function Membros() {
       setMembroParaInativar(null)
       limparCampos()
       setExibirFormulario(false)
-      buscarMembros()
+      inicializarDados()
     }
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10 relative">
+    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10 relative space-y-6">
       
-      <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Irmandade</h1>
-          <p className="text-sm text-zinc-400">Gerenciamento de membros e comando do Rock Elite MC</p>
+      {/* 🧭 TOPO REESTRUTURADO E ALINHADO */}
+      <div className="flex flex-col gap-4 border-b border-zinc-900 pb-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🛡️</span>
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">Gestão de Membros</h1>
+            <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">Gerenciamento de membros e comando do Rock Elite MC</p>
+          </div>
         </div>
-        <button
-          onClick={() => {
-            if (exibirFormulario) {
-              limparCampos()
-              setExibirFormulario(false)
-            } else {
-              limparCampos()
-              setExibirFormulario(true)
-            }
-          }}
-          className="rounded bg-zinc-100 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors"
-        >
-          {exibirFormulario ? 'Fechar Ficha' : '⚡ Recrutar Irmão'}
-        </button>
+        
+        {/* FILTROS E BOTÕES COESOS NA DIREITA */}
+        <div className="flex flex-wrap items-center gap-3">
+          
+          {/* SELETOR DE CHAPTER DINÂMICO */}
+          <div className="flex items-center gap-2 border border-zinc-900 bg-zinc-900/40 px-3 py-1.5 rounded-lg">
+            <span className="text-[10px] text-zinc-500 font-bold uppercase font-mono">Território:</span>
+            <select 
+              value={chapterSelecionada} 
+              onChange={(e) => setChapterSelecionada(e.target.value)}
+              className="bg-transparent text-xs font-black text-white outline-none cursor-pointer pr-1 font-mono uppercase"
+            >
+              <option value="todas" className="bg-zinc-950 text-zinc-300">Todas as Chapters</option>
+              {chapters.map((c) => (
+                <option key={c.id} value={c.id} className="bg-zinc-950 text-zinc-300">
+                  {c.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* ↩ BOTÃO CORRETO: "VOLTAR AO DASH" EXATAMENTE NO MEIO */}
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="rounded border border-zinc-800 bg-zinc-900/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-700 hover:text-white transition-all font-mono"
+          >
+            Voltar ao dash
+          </button>
+
+          <button
+            onClick={() => {
+              if (exibirFormulario) {
+                limparCampos()
+                setExibirFormulario(false)
+              } else {
+                limparCampos()
+                setExibirFormulario(true)
+              }
+            }}
+            className="rounded bg-zinc-100 px-5 py-2 text-xs font-black uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors"
+          >
+            {exibirFormulario ? '❌ Fechar Ficha' : '⚡ Recrutar Irmão'}
+          </button>
+        </div>
       </div>
 
+      {/* 📊 CARDS SUPERIORES SELETORES */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+        
+        {/* Card Todos */}
+        <div 
+          onClick={() => setFiltroStatus('todos')}
+          className={`rounded-xl border p-4 cursor-pointer transition-all ${filtroStatus === 'todos' ? 'border-zinc-700 bg-zinc-900/40' : 'border-zinc-900 bg-zinc-900/10 hover:border-zinc-800'}`}
+        >
+          <div className="flex items-center justify-between text-zinc-500">
+            <span className="text-[10px] font-bold uppercase tracking-wider">Total do Efetivo</span>
+            <div className="text-zinc-400 text-xs">👥</div>
+          </div>
+          <p className="mt-2 text-2xl font-black text-white font-mono">{carregando ? '...' : qtdTodos}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Listagem geral do território</p>
+        </div>
+
+        {/* Card Ativos */}
+        <div 
+          onClick={() => setFiltroStatus('ativos')}
+          className={`rounded-xl border p-4 cursor-pointer transition-all ${filtroStatus === 'ativos' ? 'border-emerald-900 bg-emerald-950/10' : 'border-zinc-900 bg-zinc-900/10 hover:border-zinc-800'}`}
+        >
+          <div className="flex items-center justify-between text-zinc-500">
+            <span className="text-[10px] font-bold uppercase tracking-wider">Integrantes Ativos</span>
+            <div className="text-emerald-400 text-xs">⚡</div>
+          </div>
+          <p className="mt-2 text-2xl font-black text-emerald-400 font-mono">{carregando ? '...' : qtdAtivos}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Prontos para a pista</p>
+        </div>
+
+        {/* Card Inativos */}
+        <div 
+          onClick={() => setFiltroStatus('inativos')}
+          className={`rounded-xl border p-4 cursor-pointer transition-all ${filtroStatus === 'inativos' ? 'border-red-900 bg-red-950/10' : 'border-zinc-900 bg-zinc-900/10 hover:border-zinc-800'}`}
+        >
+          <div className="flex items-center justify-between text-zinc-500">
+            <span className="text-[10px] font-bold uppercase tracking-wider">Baixas / Inativos</span>
+            <div className="text-red-400 text-xs">💀</div>
+          </div>
+          <p className="mt-2 text-2xl font-black text-red-400 font-mono">{carregando ? '...' : qtdInativos}</p>
+          <p className="mt-1 text-[9px] text-zinc-500 uppercase">Histórico de afastamentos</p>
+        </div>
+
+      </div>
+
+      {/* 🟡 CORPO OPERACIONAL */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
         
         {exibirFormulario && (
           <div className="rounded-xl border border-zinc-900 bg-zinc-900/30 p-6 lg:col-span-5 h-fit max-h-[85vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
-              <h2 className="text-lg font-bold text-white">
+              <h2 className="text-xs font-black text-white uppercase tracking-wider font-mono">
                 {idEdicao ? '📝 Alterar Cadastro' : 'Ficha de Alistamento'}
               </h2>
               {idEdicao && (
@@ -457,7 +570,6 @@ export default function Membros() {
                     onClick={handleResetarSenha}
                     disabled={salvandoDados}
                     className="rounded bg-zinc-800 border border-zinc-700 text-zinc-300 px-3 py-1 text-xs font-bold uppercase hover:bg-zinc-700 transition-all disabled:opacity-40"
-                    title="Volta para a senha padrão RockElite@123"
                   >
                     🔑 Resetar Senha
                   </button>
@@ -466,9 +578,9 @@ export default function Membros() {
                     <button
                       type="button"
                       onClick={() => {
-                        const membro = membros.find(m => m.id === idEdicao)
-                        if (membro) {
-                          setMembroParaInativar(membro)
+                        const m = membros.find(x => x.id === idEdicao)
+                        if (m) {
+                          setMembroParaInativar(m)
                           setExibirModalInativar(true)
                         }
                       }}
@@ -492,42 +604,55 @@ export default function Membros() {
               {abaAtiva === 'pessoal' && (
                 <div className="space-y-4">
                   <div>
+                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase tracking-wider">Chapter / Lotação Oficial *</label>
+                    <select 
+                      value={chapterIdForm} 
+                      onChange={(e) => setChapterIdForm(e.target.value)}
+                      className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none"
+                      required
+                    >
+                      {chapters.map(c => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
                     <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Nome Completo *</label>
-                    <input type="text" value={nomeCompleto} onChange={(e) => setNomeCompleto(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" required />
+                    <input type="text" value={nomeCompleto} onChange={(e) => setNomeCompleto(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" required />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">E-mail (Contato)</label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Opcional" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Opcional" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Telefone Pessoal *</label>
-                      <input type="text" value={telefonePessoal} onChange={(e) => setTelefonePessoal(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" required />
+                      <input type="text" value={telefonePessoal} onChange={(e) => setTelefonePessoal(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" required />
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">CPF *</label>
-                      <input type="text" value={cpf} onChange={(e) => setCpf(aplicarMascaraCPF(e.target.value))} placeholder="000.000.000-00" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" disabled={!!idEdicao} required />
+                      <input type="text" value={cpf} onChange={(e) => setCpf(aplicarMascaraCPF(e.target.value))} placeholder="000.000.000-00" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" disabled={!!idEdicao} required />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Sexo</label>
-                      <select value={sexo} onChange={(e) => setSexo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none">
+                      <select value={sexo} onChange={(e) => setSexo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
                         <option value="Masculino">Masculino</option>
                         <option value="Feminino">Feminino</option>
                       </select>
                     </div>
                   </div>
                   
-                  {/* 📅 LINHA DE DATAS AJUSTADA: Inclusão do campo dinâmico de Filiação */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Data Nascimento *</label>
-                      <input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" required />
+                      <input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" required />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Data de Filiação (MC) *</label>
-                      <input type="date" value={dataFiliacao} onChange={(e) => setDataFiliacao(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none cursor-pointer" required />
+                      <input type="date" value={dataFiliacao} onChange={(e) => setDataFiliacao(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none cursor-pointer" required />
                     </div>
                   </div>
 
@@ -566,7 +691,7 @@ export default function Membros() {
                   <div className="border-t border-zinc-900 pt-3 grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Identificação Tarjeta</label>
-                      <select value={tarjetaTipo} onChange={(e) => setTarjetaTipo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none">
+                      <select value={tarjetaTipo} onChange={(e) => setTarjetaTipo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
                         <option value="nome">Primeiro Nome</option>
                         <option value="sobrenome">Sobrenome</option>
                         <option value="apelido">Apelido / Vulgo</option>
@@ -574,13 +699,13 @@ export default function Membros() {
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Escrita da Tarjeta</label>
-                      <input type="text" value={tarjetaEscrita} onChange={(e) => setTarjetaEscrita(e.target.value)} placeholder="O que vai bordado" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                      <input type="text" value={tarjetaEscrita} onChange={(e) => setTarjetaEscrita(e.target.value)} placeholder="O que vai bordado" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                     </div>
                   </div>
                   <div className="border-t border-zinc-900 pt-3 grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Patente Interna</label>
-                      <select value={tpMembro} onChange={(e) => { setTpMembro(e.target.value); if(e.target.value !== 'Membros_espelho') setVinculoMembroId(''); }} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none">
+                      <select value={tpMembro} onChange={(e) => { setTpMembro(e.target.value); if(e.target.value !== 'Membros_espelho') setVinculoMembroId(''); }} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
                         <option value="prospect_I">Próspero / Prospect I</option>
                         <option value="prospect_II">Prospect II</option>
                         <option value="prospect_III">Prospect III</option>
@@ -589,11 +714,11 @@ export default function Membros() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Cargo Diretoria / Perfil</label>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Cargo Diretoria</label>
                       <select 
                         value={cargoDiretoria || 'membro'} 
                         onChange={(e) => setCargoDiretoria(e.target.value)} 
-                        className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none"
+                        className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none"
                       >
                         <option value="membro">membro (Base)</option>
                         <option value="diretor_administrativo">diretor administrativo</option>
@@ -609,7 +734,7 @@ export default function Membros() {
                         <select 
                           value={vinculoMembroId} 
                           onChange={(e) => setVinculoMembroId(e.target.value)} 
-                          className="w-full rounded bg-zinc-950 border border-red-900/40 px-3 py-2 text-sm text-white focus:border-red-700 focus:outline-none"
+                          className="w-full rounded bg-zinc-950 border border-red-900/40 px-3 py-2 text-xs text-white focus:border-red-700 focus:outline-none"
                           required
                         >
                           <option value="">Selecione o membro titular...</option>
@@ -630,36 +755,36 @@ export default function Membros() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">CEP</label>
-                    <input type="text" value={cep} onChange={(e) => aplicarMascaraCEP(e.target.value)} placeholder="00000-000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                    <input type="text" value={cep} onChange={(e) => aplicarMascaraCEP(e.target.value)} placeholder="00000-000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Rua / Logradouro</label>
-                      <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                      <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Número</label>
-                      <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                      <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Complemento</label>
-                      <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                      <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Bairro</label>
-                      <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                      <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase">Cidade (Automático via CEP)</label>
-                      <input type="text" value={enderecoCidade} disabled className="w-full rounded bg-zinc-950 border border-zinc-900/50 px-3 py-2 text-sm text-zinc-400 opacity-60 cursor-not-allowed focus:outline-none" />
+                      <input type="text" value={enderecoCidade} disabled className="w-full rounded bg-zinc-950 border border-zinc-900/50 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed focus:outline-none" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase">Estado (UF)</label>
-                      <input type="text" value={enderecoEstado} disabled placeholder="UF" className="w-full rounded bg-zinc-950 border border-zinc-900/50 px-3 py-2 text-sm text-zinc-400 opacity-60 cursor-not-allowed text-center uppercase focus:outline-none" />
+                      <input type="text" value={enderecoEstado} disabled placeholder="UF" className="w-full rounded bg-zinc-950 border border-zinc-900/50 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed text-center uppercase focus:outline-none" />
                     </div>
                   </div>
                 </div>
@@ -669,7 +794,7 @@ export default function Membros() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Tipo Sanguíneo</label>
-                    <select value={tipoSanguineo} onChange={(e) => setTipoSanguineo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none">
+                    <select value={tipoSanguineo} onChange={(e) => setTipoSanguineo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
                       <option value="">Selecione o tipo sanguíneo</option>
                       <option value="A+">A+</option>
                       <option value="A-">A-</option>
@@ -686,12 +811,12 @@ export default function Membros() {
                     <p className="text-[10px] font-bold uppercase text-zinc-500 mb-2 tracking-wider">Contato SOS (Emergência)</p>
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Nome da Pessoa de Contato</label>
-                        <input type="text" value={emergenciaNome} onChange={(e) => setEmergenciaNome(e.target.value)} placeholder="Ex: Maria (Esposa)" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Nome do Contato</label>
+                        <input type="text" value={emergenciaNome} onChange={(e) => setEmergenciaNome(e.target.value)} placeholder="Ex: Maria (Esposa)" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Telefone de Emergência</label>
-                        <input type="text" value={emergenciaFone} onChange={(e) => setEmergenciaFone(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-700 focus:outline-none" />
+                        <input type="text" value={emergenciaFone} onChange={(e) => setEmergenciaFone(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
                       </div>
                     </div>
                   </div>
@@ -704,7 +829,7 @@ export default function Membros() {
                     {possuiAlergia && (
                       <div>
                         <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Descreva as medicações:</label>
-                        <textarea value={alergiasDescricao} onChange={(e) => setAlergiasDescricao(e.target.value)} className="w-full h-20 rounded bg-zinc-950 border border-zinc-900 p-3 text-sm text-white focus:border-zinc-700 focus:outline-none resize-none" />
+                        <textarea value={alergiasDescricao} onChange={(e) => setAlergiasDescricao(e.target.value)} className="w-full h-20 rounded bg-zinc-950 border border-zinc-900 p-3 text-xs text-white focus:border-zinc-700 focus:outline-none resize-none" />
                       </div>
                     )}
                   </div>
@@ -712,7 +837,7 @@ export default function Membros() {
               )}
 
               <div className="border-t border-zinc-900 pt-4">
-                <button type="submit" disabled={enviandoFoto || salvandoDados} className="w-full rounded bg-zinc-100 py-2.5 text-sm font-bold uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                <button type="submit" disabled={enviandoFoto || salvandoDados} className="w-full rounded bg-zinc-100 py-2.5 text-xs font-black uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                   {salvandoDados ? '⏳ Forjando Acesso...' : enviandoFoto ? '⏳ Enviando Foto...' : idEdicao ? '⚡ Atualizar Base' : 'Salvar na Base 🦅'}
                 </button>
               </div>
@@ -722,107 +847,106 @@ export default function Membros() {
           </div>
         )}
 
+        {/* LISTAGEM PRINCIPAL */}
         <div className={`rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 ${exibirFormulario ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
           
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-5">
-            <h2 className="text-lg font-bold text-white whitespace-nowrap">Integrantes Atuais</h2>
+            <h2 className="text-xs font-black text-white uppercase tracking-wider font-mono flex items-center gap-2">
+              <span>👥</span> Integrantes do Território
+            </h2>
             
-            <div className="flex flex-col gap-2 sm:flex-row w-full sm:justify-end">
+            <div className="w-full sm:max-w-xs">
               <input
                 type="text"
                 placeholder="🔍 Buscar por nome, tarjeta ou patente..."
                 value={filtroTexto}
                 onChange={(e) => setFiltroTexto(e.target.value)}
-                className="w-full sm:max-w-xs rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none placeholder-zinc-600"
+                className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none placeholder-zinc-800"
               />
-
-              <select
-                value={filtroStatus}
-                onChange={(e) => setFiltroStatus(e.target.value as any)}
-                className="rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none"
-              >
-                <option value="todos">Todos Status</option>
-                <option value="ativos">Apenas Ativos</option>
-                <option value="inativos">Apenas Inativos</option>
-              </select>
             </div>
           </div>
           
           {carregando ? (
-            <p className="text-sm text-zinc-500 italic">Buscando na Sede...</p>
-          ) : membrosFiltrados.length === 0 ? (
-            <p className="text-sm text-zinc-500 italic p-4 text-center border border-dashed border-zinc-900 rounded-lg">
-              Nenhum integrante encontrado para os filtros aplicados.
+            <p className="text-xs text-zinc-500 italic uppercase tracking-wider font-mono">Buscando na Sede...</p>
+          ) : membrosFiltradosTabela.length === 0 ? (
+            <p className="text-xs text-zinc-500 italic p-6 text-center border border-dashed border-zinc-900 rounded-lg uppercase tracking-wider">
+              Nenhum integrante encontrado para os critérios selecionados.
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-zinc-300">
-                <thead className="bg-zinc-900/50 text-xs uppercase tracking-wider text-zinc-400 border-b border-zinc-900">
+              <table className="w-full text-left text-xs text-zinc-300">
+                <thead className="bg-zinc-900/50 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-900 font-mono">
                   <tr>
-                    <th className="p-4">Membro</th>
+                    <th className="p-4">Membro / Documento</th>
                     <th className="p-4">Tarjeta</th>
-                    <th className="p-4">Contato / Endereço</th>
+                    <th className="p-4">Contato / Filial</th>
                     <th className="p-4">Ficha Médica / SOS</th>
                     <th className="p-4">Patente</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-900">
-                  {membrosFiltrados.map((membro) => (
-                    <tr 
-                      key={membro.id} 
-                      onClick={() => carregarMembroParaEdicao(membro)}
-                      className={`transition-colors text-xs cursor-pointer ${membro.status_ativo ? 'hover:bg-zinc-900/50' : 'bg-red-950/5 hover:bg-red-950/10 opacity-60'}`}
-                      title="Clique para editar este integrante"
-                    >
-                      <td className="p-4 flex items-center gap-3">
-                        {membro.foto_url ? (
-                          <img src={membro.foto_url} alt="Foto" className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
-                        ) : (
-                          <div className="h-9 w-9 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-600">MC</div>
-                        )}
-                        <div>
-                          <div className="font-bold text-white text-sm flex items-center gap-2">
-                            {membro.nome_completo}
-                            {!membro.status_ativo && <span className="bg-red-900/80 text-[8px] tracking-wide text-red-200 px-1.5 py-0.5 rounded uppercase font-extrabold">Inativo</span>}
+                  {membrosFiltradosTabela.map((membro) => {
+                    const chapterDoMembro = chapters.find(c => c.id === membro.chapter_id);
+                    
+                    return (
+                      <tr 
+                        key={membro.id} 
+                        onClick={() => carregarMembroParaEdicao(membro)}
+                        className={`transition-colors text-xs cursor-pointer ${membro.status_ativo ? 'hover:bg-zinc-900/50' : 'bg-red-950/5 hover:bg-red-950/10 opacity-60'}`}
+                        title="Clique para editar este integrante"
+                      >
+                        <td className="p-4 flex items-center gap-3">
+                          {membro.foto_url ? (
+                            <img src={membro.foto_url} alt="Foto" className="h-8 w-8 rounded-full object-cover border border-zinc-800" />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-[9px] font-bold text-zinc-600">MC</div>
+                          )}
+                          <div>
+                            <div className="font-bold text-white text-sm flex items-center gap-2">
+                              {membro.nome_completo}
+                              {!membro.status_ativo && <span className="bg-red-900/80 text-[8px] tracking-wide text-red-200 px-1.5 py-0.5 rounded uppercase font-extrabold">Inativo</span>}
+                            </div>
+                            <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                              CPF: {membro.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                            </div>
                           </div>
-                          <div className="text-[10px] text-zinc-500">
-                            CPF: {membro.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                        </td>
+                        <td className="p-4">
+                          {membro.tarjeta_escrita ? (
+                            <div className="inline-block border border-zinc-800 bg-zinc-950 px-2.5 py-0.5 rounded text-center text-white font-mono tracking-widest uppercase text-[10px] shadow-inner font-bold">
+                              {membro.tarjeta_escrita}
+                            </div>
+                          ) : <span className="text-zinc-600">-</span>}
+                        </td>
+                        <td className="p-4">
+                          <div className="text-zinc-400 max-w-[160px] truncate">{membro.email || 'Sem e-mail'}</div>
+                          <div className="text-zinc-500 font-mono">{membro.telefone_pessoal}</div>
+                          <div className="text-[10px] text-zinc-500 font-bold uppercase mt-0.5 font-mono">
+                            📍 {chapterDoMembro ? chapterDoMembro.nome : 'Não Alocado'}
                           </div>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        {membro.tarjeta_escrita ? (
-                          <div className="inline-block border border-zinc-800 bg-zinc-950 px-2.5 py-1 rounded text-center text-white font-mono tracking-widest uppercase text-[11px] shadow-inner font-bold">
-                            {membro.tarjeta_escrita}
-                          </div>
-                        ) : <span className="text-zinc-600">-</span>}
-                      </td>
-                      <td className="p-4">
-                        <div className="text-zinc-400">{membro.email || 'Sem e-mail'}</div>
-                        <div className="text-zinc-500">{membro.telefone_pessoal}</div>
-                        {membro.endereco_cidade && <div className="text-[10px] text-zinc-600 mt-0.5">{membro.endereco_cidade} - {membro.endereco_estado}</div>}
-                      </td>
-                      <td className="p-4">
-                        <div className="text-red-400 font-bold">Sangue: {membro.tipo_sanguineo || 'N/A'}</div>
-                        {membro.contato_emergencia_nome && (
-                          <div className="text-[10px] text-zinc-400 mt-0.5">
-                            🚨 {membro.contato_emergencia_nome} ({membro.contato_emergencia_fone})
-                          </div>
-                        )}
-                        <div className="text-[10px] text-zinc-500 mt-0.5 max-w-[150px] truncate" title={membro.alergias_descricao}>Alergias: {membro.alergias_descricao}</div>
-                      </td>
-                      <td className="p-4">
-                        <span className="rounded bg-zinc-900 px-2 py-0.5 uppercase font-bold text-zinc-400 border border-zinc-800 text-[10px]">
-                          {membro.tp_membro.replace('_', ' ')}
-                        </span>
-                        {membro.cargo_diretoria && (
-                          <div className="text-[9px] font-extrabold text-purple-400 mt-1 uppercase tracking-widest">
-                            👑 {membro.cargo_diretoria.replace('_', ' ')}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="p-4">
+                          <div className="text-red-400 font-bold font-mono">🩸 Sangue: {membro.tipo_sanguineo || 'N/A'}</div>
+                          {membro.contato_emergencia_nome && (
+                            <div className="text-[10px] text-zinc-400 mt-0.5">
+                              🚨 {membro.contato_emergencia_nome} ({membro.contato_emergencia_fone})
+                            </div>
+                          )}
+                          <div className="text-[10px] text-zinc-500 mt-0.5 max-w-[150px] truncate" title={membro.alergias_descricao}>Alergias: {membro.alergias_descricao}</div>
+                        </td>
+                        <td className="p-4">
+                          <span className="rounded bg-zinc-900 px-2 py-0.5 uppercase font-bold text-zinc-400 border border-zinc-800 text-[9px] font-mono">
+                            {membro.tp_membro.replace('_', ' ')}
+                          </span>
+                          {membro.cargo_diretoria && (
+                            <div className="text-[9px] font-extrabold text-blue-400 mt-1 uppercase tracking-widest font-mono">
+                              ⚡ {membro.cargo_diretoria.replace('_', ' ')}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -831,6 +955,7 @@ export default function Membros() {
 
       </div>
 
+      {/* MODAL DE INATIVAÇÃO */}
       {exibirModalInativar && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full shadow-2xl">
