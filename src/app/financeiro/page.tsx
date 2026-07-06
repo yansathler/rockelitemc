@@ -547,11 +547,20 @@ export default function Financeiro() {
       {/* TOPO DA TELA */}
       <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Financeiro</h1>
-          <p className="text-sm text-zinc-400">Gerencie as finanças do seu Moto Clube com adimplência e histórico de reajustes</p>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">💵</span>
+            <h1 className="text-2xl font-bold tracking-tight text-white uppercase">Financeiro</h1>
+          </div>
+          <p className="text-sm text-zinc-400 mt-1">Gerencie as finanças do seu Moto Clube com adimplência e histórico de reajustes</p>
         </div>
 
         <div className="flex items-center gap-3">
+          <button 
+            onClick={() => router.push('/dashboard')}
+            className="rounded-lg bg-[#161920] border border-zinc-800 px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors uppercase tracking-wider"
+          >
+            Voltar ao Dash
+          </button>
           <button 
             onClick={() => calcularPainelFinanceiro(config)}
             className="flex items-center gap-1.5 rounded-lg bg-[#161920] border border-zinc-800 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
@@ -736,7 +745,7 @@ export default function Financeiro() {
             </>
           )}
 
-          {visualizacaoAtiva === 'em_atraso' && (
+{visualizacaoAtiva === 'em_atraso' && (
             <>
               <div className="flex justify-between items-center mb-1">
                 <h2 className="text-base font-bold text-red-400">⚠️ Linha de Inadimplência</h2>
@@ -744,25 +753,48 @@ export default function Financeiro() {
               </div>
               <p className="text-xs text-zinc-500 mb-6">Lista de irmãos com pendências financeiras calculadas conforme histórico de reajustes.</p>
 
-              <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
                 {membrosEmAtrasoList.length === 0 ? (
                   <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhuma pendência encontrada! 🦅</p>
                 ) : (
                   membrosEmAtrasoList.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between rounded-xl bg-[#12141c] border border-red-900/30 p-4 hover:border-red-900/60 transition-all mr-1">
-                      <div className="flex items-center gap-3">
+                    <div key={m.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl bg-[#12141c] border border-red-900/30 p-4 hover:border-red-900/60 transition-all mr-1">
+                      
+                      {/* LADO ESQUERDO: FOTO E INFORMAÇÕES DO MEMBRO */}
+                      <div className="flex items-start gap-3">
                         {m.foto_url ? (
-                          <img src={m.foto_url} alt="Membro" className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
+                          <img src={m.foto_url} alt="Membro" className="h-9 w-9 rounded-full object-cover border border-zinc-800 mt-0.5" />
                         ) : (
-                          <div className="h-9 w-9 rounded-full bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-zinc-600">MC</div>
+                          <div className="h-9 w-9 rounded-full bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-zinc-600 mt-0.5">MC</div>
                         )}
                         <div>
                           <h4 className="text-xs font-bold text-white">{m.nome_completo}</h4>
-                          <span className="inline-block border border-zinc-800 bg-zinc-950 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider text-zinc-300 mt-1 font-bold">{m.tarjeta_escrita || 'Sem Tarjeta'}</span>
+                          
+                          {/* Tags de Tarjeta e Contador de meses acumulados */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <span className="inline-block border border-zinc-800 bg-zinc-950 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider text-zinc-300 font-bold">
+                              {m.tarjeta_escrita || 'Sem Tarjeta'}
+                            </span>
+                            <span className="inline-block bg-red-950/40 border border-red-900/40 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold">
+                              {m.mensalidades_pendentes?.length || 0} {m.mensalidades_pendentes?.length === 1 ? 'mês devido' : 'meses devidos'}
+                            </span>
+                          </div>
+
+                          {/* Lista textual detalhada dos meses devidos */}
+                          {m.mensalidades_pendentes && m.mensalidades_pendentes.length > 0 && (
+                            <p className="text-[10px] text-zinc-500 mt-1.5 max-w-xs sm:max-w-md">
+                              <span className="text-zinc-400 font-medium">Competências:</span>{' '}
+                              <span className="italic text-zinc-300 font-mono">
+                                {m.mensalidades_pendentes.map((p) => p.label).join(', ')}
+                              </span>
+                            </p>
+                          )}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-xs font-bold block text-red-400">
+                      
+                      {/* LADO DIREITO: VALOR TOTAL E AÇÃO DE BAIXA */}
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t border-zinc-800/50 pt-2 sm:pt-0 sm:border-0">
+                        <span className="text-xs font-bold text-red-400 block">
                           R$ {m.valor_pendente?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                         <button 
@@ -777,11 +809,12 @@ export default function Financeiro() {
                             })
                             setExibirModalNovaTransacao(true)
                           }}
-                          className="mt-1 text-[9px] uppercase font-bold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-0.5 rounded"
+                          className="mt-1 text-[9px] uppercase font-bold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-1 rounded transition-colors"
                         >
                           💸 Dar Baixa
                         </button>
                       </div>
+
                     </div>
                   ))
                 )}
