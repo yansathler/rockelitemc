@@ -86,6 +86,7 @@ export default function Financeiro() {
   const [filtroTexto, setFiltroTexto] = useState('')
   const [filtroTempo, setFiltroTempo] = useState('Este Mês')
   const [filtroCategoria, setFiltroCategoria] = useState('Todos')
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | 'entrada' | 'saida'>('todos')
 
   // Modais e formulários
   const [exibirMenuConfig, setExibirMenuConfig] = useState(false)
@@ -523,13 +524,30 @@ export default function Financeiro() {
     setFiltroTexto('')
     setFiltroTempo('Este Mês')
     setFiltroCategoria('Todos')
+    setFiltroTipo('todos')
+  }
+
+  const handleClickReceitas = () => {
+    setVisualizacaoAtiva('transacoes')
+    setFiltroTipo('entrada')
+    setFiltroTempo('Este Mês')
+  }
+
+  const handleClickDespesas = () => {
+    setVisualizacaoAtiva('transacoes')
+    setFiltroTipo('saida')
+    setFiltroTempo('Este Mês')
   }
 
   const transacoesFiltradas = transacoes.filter(t => {
+    if (filtroTipo !== 'todos' && t.tipo !== filtroTipo) return false
     if (filtroCategoria !== 'Todos' && t.categoria !== filtroCategoria) return false
-    if (filtroTexto) {
-      return t.descricao.toLowerCase().includes(filtroTexto.toLowerCase())
+    if (filtroTempo === 'Este Mês') {
+      const hoje = new Date()
+      const dataMov = new Date(`${t.data_movimentacao}T12:00:00`)
+      if (dataMov.getMonth() !== hoje.getMonth() || dataMov.getFullYear() !== hoje.getFullYear()) return false
     }
+    if (filtroTexto && !t.descricao.toLowerCase().includes(filtroTexto.toLowerCase())) return false
     return true
   })
 
@@ -595,7 +613,11 @@ export default function Financeiro() {
           <p className="mt-1 text-xs text-zinc-500">Saldo acumulado atual</p>
         </div>
 
-        <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
+        <button
+          type="button"
+          onClick={handleClickReceitas}
+          className={`rounded-xl border bg-[#12141c] p-5 text-left transition-all cursor-pointer hover:border-emerald-700/50 ${filtroTipo === 'entrada' && visualizacaoAtiva === 'transacoes' ? 'border-emerald-500/50 ring-1 ring-emerald-500/30' : 'border-zinc-800/60'}`}
+        >
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs font-medium">Receitas</span>
             <span className="text-sm text-emerald-500 font-bold">↗</span>
@@ -604,9 +626,13 @@ export default function Financeiro() {
             R$ {entradasMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">Somatório deste mês</p>
-        </div>
+        </button>
 
-        <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
+        <button
+          type="button"
+          onClick={handleClickDespesas}
+          className={`rounded-xl border bg-[#12141c] p-5 text-left transition-all cursor-pointer hover:border-red-700/50 ${filtroTipo === 'saida' && visualizacaoAtiva === 'transacoes' ? 'border-red-500/50 ring-1 ring-red-500/30' : 'border-zinc-800/60'}`}
+        >
           <div className="flex justify-between items-center text-zinc-400">
             <span className="text-xs font-medium">Despesas</span>
             <span className="text-sm text-red-400 font-bold">↘</span>
@@ -615,7 +641,7 @@ export default function Financeiro() {
             R$ {saidasMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">Somatório deste mês</p>
-        </div>
+        </button>
 
         <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
           <div className="flex justify-between items-center text-zinc-400">
@@ -629,43 +655,46 @@ export default function Financeiro() {
         </div>
       </div>
 
-      {/* FILTROS */}
-      {visualizacaoAtiva === 'transacoes' && (
-        <div className="mb-6 rounded-xl border border-zinc-800/60 bg-[#12141c] p-4">
-          <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-white">
-            <span>⚙️</span> Filtros de Extrato
-          </div>
-          <div className="grid gap-3 grid-cols-1 md:grid-cols-4">
-            <input
-              type="text"
-              placeholder="Buscar transações..."
-              value={filtroTexto}
-              onChange={(e) => setFiltroTexto(e.target.value)}
-              className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 placeholder-zinc-600"
-            />
-            <select
-              value={filtroTempo}
-              onChange={(e) => setFiltroTempo(e.target.value)}
-              className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
-            >
-              <option value="Este Mês">Este Mês</option>
-              <option value="Todos">Todos os períodos</option>
-            </select>
-            <select
-              value={filtroCategoria}
-              onChange={(e) => setFiltroCategoria(e.target.value)}
-              className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
-            >
-              <option value="Todos">Todos</option>
-              <option value="Mensalidades">Mensalidades</option>
-              <option value="Combustível">Combustível</option>
-            </select>
-            <button onClick={limparFiltros} className="rounded-lg border border-zinc-800 bg-[#0d0e11] py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors">
-              Limpar Filtros
-            </button>
-          </div>
+      {/* FILTROS — sempre visível */}
+      <div className="mb-6 rounded-xl border border-zinc-800/60 bg-[#12141c] p-4">
+        <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-white">
+          <span>⚙️</span> Filtros de Extrato
+          {filtroTipo !== 'todos' && (
+            <span className={`ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${filtroTipo === 'entrada' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-900/40' : 'bg-red-950/40 text-red-400 border border-red-900/40'}`}>
+              {filtroTipo === 'entrada' ? 'Receitas' : 'Despesas'}
+            </span>
+          )}
         </div>
-      )}
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-4">
+          <input
+            type="text"
+            placeholder="Buscar transações..."
+            value={filtroTexto}
+            onChange={(e) => setFiltroTexto(e.target.value)}
+            className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 placeholder-zinc-600"
+          />
+          <select
+            value={filtroTempo}
+            onChange={(e) => setFiltroTempo(e.target.value)}
+            className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
+          >
+            <option value="Este Mês">Este Mês</option>
+            <option value="Todos">Todos os períodos</option>
+          </select>
+          <select
+            value={filtroCategoria}
+            onChange={(e) => setFiltroCategoria(e.target.value)}
+            className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
+          >
+            <option value="Todos">Todos</option>
+            <option value="Mensalidades">Mensalidades</option>
+            <option value="Combustível">Combustível</option>
+          </select>
+          <button onClick={limparFiltros} className="rounded-lg border border-zinc-800 bg-[#0d0e11] py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors">
+            Limpar Filtros
+          </button>
+        </div>
+      </div>
 
       {/* GRID DE DUAS COLUNAS PRINCIPAIS */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
@@ -675,8 +704,14 @@ export default function Financeiro() {
           
           {visualizacaoAtiva === 'transacoes' && (
             <>
-              <h2 className="text-base font-bold text-white mb-1">$ Transações Recentes</h2>
-              <p className="text-xs text-zinc-500 mb-6">Últimas movimentações financeiras de caixa</p>
+              <h2 className="text-base font-bold text-white mb-1">
+                $ Transações Recentes
+                {filtroTipo === 'entrada' && <span className="ml-2 text-emerald-400 text-xs font-medium">— Receitas</span>}
+                {filtroTipo === 'saida' && <span className="ml-2 text-red-400 text-xs font-medium">— Despesas</span>}
+              </h2>
+              <p className="text-xs text-zinc-500 mb-6">
+                {filtroTipo === 'entrada' ? 'Entradas de caixa filtradas' : filtroTipo === 'saida' ? 'Saídas de caixa filtradas' : 'Últimas movimentações financeiras de caixa'}
+              </p>
 
               {/* AJUSTE VISUAL: Altura máxima definida para caber exatamente 5 transações confortavelmente. 
                 Se passar disso, a barra de rolagem é ativada suavemente.
@@ -833,7 +868,7 @@ export default function Financeiro() {
 
             <div className="space-y-3 text-xs font-medium">
               <div 
-                onClick={() => setVisualizacaoAtiva('transacoes')}
+                onClick={() => { setVisualizacaoAtiva('transacoes'); setFiltroTipo('todos') }}
                 className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'transacoes' ? 'bg-[#161920] border-zinc-700' : 'border-transparent hover:bg-zinc-900/30'}`}
               >
                 <span className="text-zinc-400">Total de Membros Ativos</span>

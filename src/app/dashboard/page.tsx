@@ -713,9 +713,21 @@ export default function CentralDeComandos() {
                   className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left cursor-not-allowed opacity-50"
                   disabled
                 >
+
+                  
                   <div className="mb-2 rounded-md bg-red-950/40 p-1.5 text-red-400 text-[11px]">🍺</div>
                   <h4 className="text-[11px] font-bold text-white">Gestão do Bar</h4>
                   <p className="text-[9px] text-zinc-500 mt-0.5">Estoque e comandas</p>
+                </button>
+
+                {/* Gestão de Rede de MC (Mantido Bloqueado) */}
+                <button 
+                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left cursor-not-allowed opacity-50"
+                  disabled
+                >
+                  <div className="mb-2 rounded-md bg-zinc-950/60 p-1.5 text-zinc-400 text-[11px]">🌐</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão de Rede de MC</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Alianças e motoclubes parceiros</p>
                 </button>
               </div>
             </div>

@@ -243,7 +243,7 @@ export default function CadastroRota() {
       }
 
       alert('⚡ Missão Cumprida! Rota tática cadastrada com sucesso!')
-      router.push('/dashboard')
+      router.push('/rotas')
 
     } catch (err) {
       console.error('Erro ao salvar plano de rota:', err)
@@ -552,7 +552,7 @@ export default function CadastroRota() {
 
       {/* Navegador Inferior de Ações (Avançar, Voltar, Salvar) */}
       <div className="flex justify-between items-center border-t border-zinc-900 pt-6">
-        <button type="button" onClick={() => passoAtivo > 1 ? setPassoAtivo(passoAtivo - 1) : router.push('/dashboard')} className="rounded border border-zinc-800 bg-zinc-900 px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white uppercase tracking-wider transition-colors">
+        <button type="button" onClick={() => passoAtivo > 1 ? setPassoAtivo(passoAtivo - 1) : router.push('/rotas')} className="rounded border border-zinc-800 bg-zinc-900 px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white uppercase tracking-wider transition-colors">
           {passoAtivo === 1 ? '← Cancelar' : '← Voltar'}
         </button>
 
