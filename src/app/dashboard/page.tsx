@@ -708,16 +708,25 @@ export default function CentralDeComandos() {
                   <p className="text-[9px] text-zinc-500 mt-0.5">Grade mensal e cronograma</p>
                 </button>
 
-                {/* Botão Bar (Mantido Bloqueado) */}
+                {/* Botão Bar (Ativado) */}
                 <button 
-                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left cursor-not-allowed opacity-50"
-                  disabled
+                  onClick={() => router.push('/bar')}
+                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-red-700 transition-colors group"
                 >
-
-                  
-                  <div className="mb-2 rounded-md bg-red-950/40 p-1.5 text-red-400 text-[11px]">🍺</div>
+                  <div className="mb-2 rounded-md bg-red-950/40 p-1.5 text-red-400 group-hover:scale-105 transition-transform text-[11px]">🍺</div>
                   <h4 className="text-[11px] font-bold text-white">Gestão do Bar</h4>
                   <p className="text-[9px] text-zinc-500 mt-0.5">Estoque e comandas</p>
+                </button>
+
+                {/* Gestão de Inventário */}
+                <button 
+                  onClick={() => router.push('/inventario')}
+                  className="flex flex-col items-start rounded-lg border border-zinc-900 bg-zinc-900/30 p-2.5 text-left hover:border-amber-700 transition-colors group"
+                  
+                >
+                  <div className="mb-2 rounded-md bg-amber-950/40 p-1.5 text-amber-400 text-[11px]">📦</div>
+                  <h4 className="text-[11px] font-bold text-white">Gestão de Inventário</h4>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">Patrimônio e ativos da sede</p>
                 </button>
 
                 {/* Gestão de Rede de MC (Mantido Bloqueado) */}

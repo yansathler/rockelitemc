@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '../../../../lib/supabase'
+import { createClient } from '../../../lib/supabase'
 
 interface Produto {
   id: string
@@ -15,17 +15,22 @@ interface Produto {
 
 interface Membro {
   id: string
-  nome: string
+  nome_completo: string
 }
 
 interface Comanda {
   id: string
-  numero: number // Sequencial gerado pelo banco
-  nome_cliente: string
-  membro_id?: string | null
-  tipo_cliente: 'membro' | 'visitante'
-  status: 'aberta' | 'paga' | 'pendurada'
+  membro_id: string | null
+  nome_visitante: string | null
+  status: 'Aberta' | 'Paga' // Removido 'Pendurada'
+  valor_total: number
+  total: number | null
   created_at: string
+  closed_at: string | null
+  caixa_movimentacao_id: string | null
+  membros?: {
+    nome_completo: string
+  } | null
 }
 
 interface ComandaItem {
@@ -33,9 +38,9 @@ interface ComandaItem {
   comanda_id: string
   produto_id: string
   quantidade: number
-  preco_custo_snapshot: number
-  preco_venda_snapshot: number
-  subtotal: number
+  preco_custo_aplicado: number
+  preco_venda_aplicado: number
+  created_at: string
   bar_produtos?: {
     nome: string
   }
@@ -57,8 +62,8 @@ export default function ComandasPage() {
   const [comandaSelecionada, setComandaSelecionada] = useState<Comanda | null>(null)
   const [itensComanda, setItensComanda] = useState<ComandaItem[]>([])
 
-  // Filtros
-  const [filtroStatus, setFiltroStatus] = useState<'aberta' | 'paga' | 'pendurada' | 'todas'>('aberta')
+  // Filtros (Removido 'Pendurada')
+  const [filtroStatus, setFiltroStatus] = useState<'Aberta' | 'Paga' | 'Todas'>('Aberta')
   const [filtroTipoCliente, setFiltroTipoCliente] = useState<'todos' | 'membro' | 'visitante'>('todos')
 
   // Modais
@@ -67,7 +72,7 @@ export default function ComandasPage() {
   const [modalFecharComanda, setModalFecharComanda] = useState(false)
 
   // Formulário Nova Comanda
-  const [nomeCliente, setNomeCliente] = useState('')
+  const [nomeVisitante, setNomeVisitante] = useState('')
   const [membroSelecionadoId, setMembroSelecionadoId] = useState('')
   const [tipoCliente, setTipoCliente] = useState<'membro' | 'visitante'>('visitante')
 
@@ -75,10 +80,10 @@ export default function ComandasPage() {
   const [produtoLancamentoId, setProdutoLancamentoId] = useState('')
   const [quantidadeLancamento, setQuantidadeLancamento] = useState(1)
 
-  // Formulário de Fechamento de Comanda
-  const [metodoPagamento, setMetodoPagamento] = useState<'dinheiro' | 'pix' | 'cartao' | 'pendurar'>('pix')
+  // Formulário de Fechamento de Comanda (Removido 'pendurar')
+  const [metodoPagamento, setMetodoPagamento] = useState<'dinheiro' | 'pix' | 'cartao'>('pix')
 
-  // Estado auxiliar para calcular totais das comandas sem depender da coluna "total" no banco
+  // Estado auxiliar para calcular totais das comandas
   const [totaisComandas, setTotaisComandas] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -97,27 +102,28 @@ export default function ComandasPage() {
   useEffect(() => {
     if (comandaSelecionada) {
       carregarItensComanda(comandaSelecionada.id)
-      if (comandaSelecionada.tipo_cliente === 'visitante') {
-        setMetodoPagamento('pix')
-      }
     } else {
       setItensComanda([])
     }
   }, [comandaSelecionada])
 
-  // Recalcula o total localmente sempre que os itens da comanda selecionada mudam
-  const totalComandaSelecionada = itensComanda.reduce((acc, item) => acc + item.subtotal, 0)
+  const totalComandaSelecionada = itensComanda.reduce(
+    (acc, item) => acc + (item.quantidade * item.preco_venda_aplicado), 
+    0
+  )
 
   async function carregarMembros() {
     try {
       const { data, error } = await supabase
-        .from('membros') 
-        .select('id, nome')
-        .order('nome', { ascending: true })
+        .from('membros')
+        .select('id, nome_completo')
+        .eq('status_ativo', true)
+        .order('nome_completo', { ascending: true })
 
-      if (!error && data) setMembros(data)
-    } catch (err) {
-      console.error('Erro ao carregar membros:', err)
+      if (error) throw error
+      if (data) setMembros(data)
+    } catch (err: any) {
+      console.error('Erro ao carregar membros:', err.message)
     }
   }
 
@@ -126,24 +132,24 @@ export default function ComandasPage() {
       setCarregando(true)
       const { data: comandasData, error: errorComandas } = await supabase
         .from('bar_comandas')
-        .select('*')
+        .select('*, membros(nome_completo)')
 
       if (errorComandas) throw errorComandas
       
-      const listaComandas = comandasData || []
+      const listaComandas = (comandasData || []) as Comanda[]
       setComandas(listaComandas)
 
       if (listaComandas.length > 0) {
         const { data: itensData, error: errorItens } = await supabase
           .from('bar_comanda_itens')
-          .select('comanda_id, subtotal')
+          .select('comanda_id, quantidade, preco_venda_aplicado')
 
         if (!errorItens && itensData) {
           const mapaTotais: Record<string, number> = {}
           listaComandas.forEach(c => { mapaTotais[c.id] = 0 })
           itensData.forEach(item => {
             if (mapaTotais[item.comanda_id] !== undefined) {
-              mapaTotais[item.comanda_id] += item.subtotal
+              mapaTotais[item.comanda_id] += (item.quantidade * item.preco_venda_aplicado)
             }
           })
           setTotaisComandas(mapaTotais)
@@ -179,12 +185,12 @@ export default function ComandasPage() {
           comanda_id,
           produto_id,
           quantidade,
-          preco_custo_snapshot,
-          preco_venda_snapshot,
-          subtotal,
+          preco_custo_aplicado,
+          preco_venda_aplicado,
+          created_at,
           bar_produtos ( nome )
         `)
-          .eq('comanda_id', comandaId)
+        .eq('comanda_id', comandaId)
 
       if (error) throw error
       setItensComanda(data as any || [])
@@ -193,63 +199,53 @@ export default function ComandasPage() {
     }
   }
 
-  // Abertura com Regra de Comanda Única Ativa por Pessoa/Membro
   async function handleCriarComanda(e: React.FormEvent) {
     e.preventDefault()
 
-    let nomeFinal = nomeCliente.trim()
-    let idMembro: string | null = null
+    let payload: Partial<Comanda> = {
+      status: 'Aberta'
+    }
 
     if (tipoCliente === 'membro') {
-      const membroObj = membros.find(m => m.id === membroSelecionadoId)
-      if (!membroObj) {
+      if (!membroSelecionadoId) {
         alert('❌ Por favor, selecione um irmão/membro da lista.')
         return
       }
-      nomeFinal = membroObj.nome
-      idMembro = membroObj.id
-    }
-
-    const comandaAtivaExistente = comandas.find(c => {
-      if (c.status !== 'aberta') return false
-      if (idMembro && c.membro_id === idMembro) return true
-      return c.nome_cliente.toLowerCase().trim() === nomeFinal.toLowerCase().trim()
-    })
-
-    if (comandaAtivaExistente) {
-      alert(`⚠️ Bloqueado: "${nomeFinal}" já possui a comanda ativa Nº ${comandaAtivaExistente.numero}. Redirecionando...`)
-      setComandaSelecionada(comandaAtivaExistente)
-      setModalNovaComanda(false)
-      setNomeCliente('')
-      setMembroSelecionadoId('')
-      return
+      payload.membro_id = membroSelecionadoId
+      payload.nome_visitante = null
+    } else {
+      if (!nomeVisitante.trim()) {
+        alert('❌ Por favor, digite o nome do visitante.')
+        return
+      }
+      payload.membro_id = null
+      payload.nome_visitante = nomeVisitante.trim()
     }
 
     try {
       setSubmitting(true)
       const { data, error } = await supabase
         .from('bar_comandas')
-        .insert([{
-          nome_cliente: nomeFinal,
-          membro_id: idMembro,
-          tipo_cliente: tipoCliente,
-          status: 'aberta'
-        }])
-        .select()
+        .insert([payload])
+        .select('*, membros(nome_completo)')
         .single()
 
-      if (error) throw error
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('Este irmão já possui uma comanda ativa em aberto no sistema.')
+        }
+        throw error
+      }
 
-      // Notificação exibindo o número sequencial gerado pelo banco
-      alert(`🎉 Comanda Nº ${data.numero} para "${data.nome_cliente}" aberta com sucesso!`)
+      alert('🎉 Comanda aberta com sucesso!')
       
-      setNomeCliente('')
+      setNomeVisitante('')
       setMembroSelecionadoId('')
       setModalNovaComanda(false)
       await carregarComandas()
       
       if (data) {
-        setComandaSelecionada(data)
+        setComandaSelecionada(data as Comanda)
       }
     } catch (error: any) {
       alert(error.message || 'Erro ao abrir comanda.')
@@ -258,7 +254,6 @@ export default function ComandasPage() {
     }
   }
 
-  // Lançamento com Baixa de Estoque Instantânea
   async function handleLancarItem(e: React.FormEvent) {
     e.preventDefault()
     if (!comandaSelecionada || !produtoLancamentoId) return
@@ -273,12 +268,11 @@ export default function ComandasPage() {
 
     try {
       setSubmitting(true)
-      const subtotalItem = produto.preco_venda * quantidadeLancamento
+      const valorLancamento = produto.preco_venda * quantidadeLancamento
 
-      const novoEstoque = produto.estoque_atual - quantidadeLancamento
       const { error: errorEstoque } = await supabase
         .from('bar_produtos')
-        .update({ estoque_atual: novoEstoque })
+        .update({ estoque_atual: produto.estoque_atual - quantidadeLancamento })
         .eq('id', produto.id)
 
       if (errorEstoque) throw errorEstoque
@@ -286,12 +280,9 @@ export default function ComandasPage() {
       const itemExistente = itensComanda.find(item => item.produto_id === produto.id)
 
       if (itemExistente) {
-        const novaQtd = itemExistente.quantidade + quantidadeLancamento
-        const novoSubtotal = itemExistente.preco_venda_snapshot * novaQtd
-        
         const { error: errorUpdateItem } = await supabase
           .from('bar_comanda_itens')
-          .update({ quantidade: novaQtd, subtotal: novoSubtotal })
+          .update({ quantidade: itemExistente.quantidade + quantidadeLancamento })
           .eq('id', itemExistente.id)
 
         if (errorUpdateItem) throw errorUpdateItem
@@ -302,15 +293,20 @@ export default function ComandasPage() {
             comanda_id: comandaSelecionada.id,
             produto_id: produto.id,
             quantidade: quantidadeLancamento,
-            preco_custo_snapshot: produto.preco_compra,
-            preco_venda_snapshot: produto.preco_venda,
-            subtotal: subtotalItem
+            preco_custo_aplicado: produto.preco_compra,
+            preco_venda_aplicado: produto.preco_venda
           }])
 
         if (errorInsertItem) throw errorInsertItem
       }
 
-      alert('Item lançado e estoque atualizado!')
+      const novoTotalComanda = (totaisComandas[comandaSelecionada.id] || 0) + valorLancamento
+      await supabase
+        .from('bar_comandas')
+        .update({ valor_total: novoTotalComanda, total: novoTotalComanda })
+        .eq('id', comandaSelecionada.id)
+
+      alert('Item lançado com sucesso!')
       setProdutoLancamentoId('')
       setQuantidadeLancamento(1)
       setModalLancamento(false)
@@ -328,7 +324,6 @@ export default function ComandasPage() {
     }
   }
 
-  // Devolução/Estorno Instantâneo
   async function handleRemoverItem(item: ComandaItem) {
     if (!comandaSelecionada) return
     
@@ -346,10 +341,9 @@ export default function ComandasPage() {
 
       if (prodGetError) throw prodGetError
 
-      const estoqueDevolvido = prodData.estoque_atual + item.quantidade
       const { error: prodUpdateError } = await supabase
         .from('bar_produtos')
-        .update({ estoque_atual: estoqueDevolvido })
+        .update({ estoque_atual: prodData.estoque_atual + item.quantidade })
         .eq('id', item.produto_id)
 
       if (prodUpdateError) throw prodUpdateError
@@ -360,6 +354,14 @@ export default function ComandasPage() {
         .eq('id', item.id)
 
       if (itemDeleteError) throw itemDeleteError
+
+      const valorEstornado = item.quantidade * item.preco_venda_aplicado
+      const novoTotalComanda = Math.max(0, (totaisComandas[comandaSelecionada.id] || 0) - valorEstornado)
+      
+      await supabase
+        .from('bar_comandas')
+        .update({ valor_total: novoTotalComanda, total: novoTotalComanda })
+        .eq('id', comandaSelecionada.id)
 
       alert('Item estornado com sucesso!')
       
@@ -376,7 +378,6 @@ export default function ComandasPage() {
     }
   }
 
-  // Fechamento, Liquidação e Caixa Geral
   async function handleFecharComanda(e: React.FormEvent) {
     e.preventDefault()
     if (!comandaSelecionada) return
@@ -388,37 +389,41 @@ export default function ComandasPage() {
 
     try {
       setSubmitting(true)
-      const statusFinal = metodoPagamento === 'pendurar' ? 'pendurada' : 'paga'
+      let caixaMovimentacaoId: string | null = null
 
-      if (statusFinal === 'paga') {
-        const metodosTraduzidos = { dinheiro: 'Dinheiro', pix: 'PIX', cartao: 'Cartão' }
-        const descMetodo = metodosTraduzidos[metodoPagamento as 'dinheiro' | 'pix' | 'cartao']
+      const metodosTraduzidos = { dinheiro: 'Dinheiro', pix: 'PIX', cartao: 'Cartão' }
+      const descMetodo = metodosTraduzidos[metodoPagamento]
+      const identificacaoCliente = comandaSelecionada.membros?.nome_completo || comandaSelecionada.nome_visitante || 'Cliente'
 
-        const { error: errorCaixa } = await supabase
-          .from('caixa_movimentacoes')
-          .insert([{
-            tipo: 'entrada',
-            categoria: 'Bar - Faturamento',
-            descricao: `Faturamento Bar - Comanda #${comandaSelecionada.numero} (${comandaSelecionada.nome_cliente}) [Mtd: ${descMetodo}]`,
-            valor: totalComandaSelecionada,
-            data_movimentacao: new Date().toISOString()
-          }])
+      const { data: caixaData, error: errorCaixa } = await supabase
+        .from('caixa_movimentacoes')
+        .insert([{
+          tipo: 'entrada',
+          categoria: 'Bar - Faturamento',
+          descricao: `Faturamento Bar - Comanda ID: ${comandaSelecionada.id.substring(0,8)} (${identificacaoCliente}) [Mtd: ${descMetodo}]`,
+          valor: totalComandaSelecionada,
+          data_movimentacao: new Date().toISOString()
+        }])
+        .select('id')
+        .single()
 
-        if (errorCaixa) throw errorCaixa
-      }
+      if (errorCaixa) throw errorCaixa
+      if (caixaData) caixaMovimentacaoId = caixaData.id
 
       const { error: errorComanda } = await supabase
         .from('bar_comandas')
-        .update({ status: statusFinal })
+        .update({ 
+          status: 'Paga', // Forçado sempre como Paga
+          closed_at: new Date().toISOString(),
+          caixa_movimentacao_id: caixaMovimentacaoId,
+          valor_total: totalComandaSelecionada,
+          total: totalComandaSelecionada
+        })
         .eq('id', comandaSelecionada.id)
 
       if (errorComanda) throw errorComanda
 
-      alert(
-        statusFinal === 'paga'
-          ? 'Comanda fechada e faturamento registrado no caixa geral!'
-          : 'Comanda pendurada para acerto mensal. Nenhum lançamento gerado no caixa financeiro hoje.'
-      )
+      alert('Comanda fechada e faturamento registrado no caixa geral!')
 
       setModalFecharComanda(false)
       setComandaSelecionada(null)
@@ -433,8 +438,9 @@ export default function ComandasPage() {
 
   const comandasFiltradas = comandas
     .filter(c => {
-      const atendeStatus = filtroStatus === 'todas' ? true : c.status === filtroStatus
-      const atendeTipo = filtroTipoCliente === 'todos' ? true : c.tipo_cliente === filtroTipoCliente
+      const atendeStatus = filtroStatus === 'Todas' ? true : c.status === filtroStatus
+      const atendeTipo = filtroTipoCliente === 'todos' ? true : 
+                         filtroTipoCliente === 'membro' ? c.membro_id !== null : c.nome_visitante !== null
       return atendeStatus && atendeTipo
     })
     .sort((a, b) => (totaisComandas[b.id] || 0) - (totaisComandas[a.id] || 0))
@@ -444,7 +450,7 @@ export default function ComandasPage() {
       <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400 font-medium text-xs tracking-widest uppercase">
         <div className="flex flex-col items-center gap-3">
           <span className="text-xl animate-spin">🍻</span>
-          <span>Sincronizando comandas e estoque do bar...</span>
+          <span>Sincronizando com banco relacional...</span>
         </div>
       </div>
     )
@@ -459,7 +465,7 @@ export default function ComandasPage() {
       <div className="mb-8 flex flex-col justify-between gap-4 border-b border-zinc-900 pb-6 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">🍻 Painel de Comandas</h1>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-0.5">Gestão de consumo com baixa instantânea de adega e bar</p>
+          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-0.5">Gestão de adega parametrizada por ID e Integrada ao Caixa</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -472,10 +478,10 @@ export default function ComandasPage() {
         </div>
       </div>
 
-      {/* FILTROS DO MURAL */}
+      {/* FILTROS (Sem o status Pendurada) */}
       <div className="mb-6 flex flex-wrap gap-4 items-center justify-between border-b border-zinc-900 pb-4">
         <div className="flex gap-2">
-          {(['aberta', 'pendurada', 'paga', 'todas'] as const).map((status) => (
+          {(['Aberta', 'Paga', 'Todas'] as const).map((status) => (
             <button
               key={status}
               onClick={() => setFiltroStatus(status)}
@@ -485,7 +491,7 @@ export default function ComandasPage() {
                   : 'text-zinc-500 hover:text-zinc-350'
               }`}
             >
-              {status === 'aberta' ? '🟢 Abertas' : status === 'pendurada' ? '⚠️ Penduradas' : status === 'paga' ? '🔴 Pagas' : '📁 Todas'}
+              {status === 'Aberta' ? '🟢 Abertas' : status === 'Paga' ? '🔴 Pagas' : '📁 Todas'}
             </button>
           ))}
         </div>
@@ -510,19 +516,19 @@ export default function ComandasPage() {
       {/* GRADE CENTRAL */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
         
-        {/* COLUNA ESQUERDA: MURAL */}
+        {/* MURAL */}
         <div className="rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 lg:col-span-2">
           <div className="mb-4 border-l-2 border-zinc-700 pl-3 flex justify-between items-center">
             <h2 className="text-xs font-bold text-white uppercase tracking-wider">Mural Ativo ({comandasFiltradas.length})</h2>
-            <span className="text-[9px] text-zinc-500 font-mono uppercase">Ordenado por Maior Valor</span>
           </div>
 
           {comandasFiltradas.length === 0 ? (
-            <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhuma comanda localizada sob o filtro selecionado.</p>
+            <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhuma comanda localizada.</p>
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
               {comandasFiltradas.map((c) => {
-                const ehMembro = c.tipo_cliente === 'membro'
+                const ehMembro = c.membro_id !== null
+                const nomeCliente = ehMembro ? c.membros?.nome_completo : c.nome_visitante
                 const totalCalculado = totaisComandas[c.id] || 0
                 return (
                   <div
@@ -535,15 +541,17 @@ export default function ComandasPage() {
                     }`}
                   >
                     <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-black font-mono text-white">Comanda #{c.numero}</span>
-                          {c.status === 'aberta' && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
-                          {c.status === 'pendurada' && <span className="w-2 h-2 rounded-full bg-amber-500"></span>}
-                        </div>
-                        <p className="text-[10px] text-zinc-400 font-bold uppercase mt-1">Cliente: {c.nome_cliente}</p>
+                      <div className="space-y-1.5">
+                        <h3 className="text-sm font-black text-white uppercase tracking-wide truncate max-w-[190px]">
+                          {nomeCliente || 'Desconhecido'}
+                        </h3>
                         
-                        <div className="flex gap-1.5 mt-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-medium font-mono text-zinc-500">Cod: #{c.id.substring(0, 8)}</span>
+                          {c.status === 'Aberta' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+                        </div>
+                        
+                        <div className="flex gap-1.5">
                           <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${ehMembro ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-950 text-zinc-500'}`}>
                             {ehMembro ? '🛡️ Membro' : '💼 Visitante'}
                           </span>
@@ -552,7 +560,7 @@ export default function ComandasPage() {
                       
                       <div className="text-right">
                         <span className="text-xs font-mono font-black text-white">R$ {totalCalculado.toFixed(2)}</span>
-                        <p className="text-[9px] text-zinc-500 uppercase tracking-wide mt-1">Consumido</p>
+                        <p className="text-[9px] text-zinc-500 uppercase tracking-wide mt-1">Total</p>
                       </div>
                     </div>
                   </div>
@@ -562,76 +570,67 @@ export default function ComandasPage() {
           )}
         </div>
 
-        {/* COLUNA DIREITA: COMANDA ATIVA */}
+        {/* DETALHES DA COMANDA */}
         <div className="rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 flex flex-col justify-between">
           {comandaSelecionada ? (
             <div className="flex flex-col h-full justify-between">
               <div>
                 <div className="border-b border-zinc-900 pb-3 mb-4 flex justify-between items-start">
                   <div>
-                    <span className="text-[10px] font-mono uppercase text-zinc-500 block">Auditoria Operacional</span>
-                    <h3 className="text-sm font-black text-white uppercase font-mono">Comanda #{comandaSelecionada.numero} - {comandaSelecionada.nome_cliente}</h3>
+                    <span className="text-[10px] font-mono uppercase text-zinc-500 block">UUID: {comandaSelecionada.id.substring(0,8)}...</span>
+                    <h3 className="text-sm font-black text-white uppercase font-mono">
+                      {comandaSelecionada.membro_id ? comandaSelecionada.membros?.nome_completo : comandaSelecionada.nome_visitante}
+                    </h3>
                   </div>
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase ${
-                    comandaSelecionada.status === 'aberta' ? 'bg-emerald-950 text-emerald-450 border border-emerald-900/40' :
-                    comandaSelecionada.status === 'pendurada' ? 'bg-amber-950 text-amber-500 border border-amber-900/40' :
-                    'bg-zinc-850 text-zinc-400'
+                    comandaSelecionada.status === 'Aberta' ? 'bg-emerald-950 text-emerald-450 border border-emerald-900/40' : 'bg-zinc-850 text-zinc-400'
                   }`}>
-                    {comandaSelecionada.status === 'aberta' ? 'Em aberto' : comandaSelecionada.status === 'pendurada' ? 'Pendurada' : 'Liquidada'}
+                    {comandaSelecionada.status}
                   </span>
                 </div>
 
-                {/* ITENS DA COMANDA */}
                 <div className="space-y-3">
-                  <h4 className="text-[10px] font-bold uppercase text-zinc-400 tracking-widest">📋 Consumo Registrado</h4>
+                  <h4 className="text-[10px] font-bold uppercase text-zinc-400 tracking-widest">📋 Consumo</h4>
                   
                   {itensComanda.length === 0 ? (
-                    <p className="text-xs text-zinc-500 italic py-4 text-center">Nenhum item lançado ainda.</p>
+                    <p className="text-xs text-zinc-500 italic py-4 text-center">Nenhum item lançado.</p>
                   ) : (
-                    <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 scrollbar-thin">
-                      {itensComanda.map((item) => (
-                        <div key={item.id} className="flex justify-between items-center text-xs p-2.5 bg-zinc-950/60 border border-zinc-900 rounded-lg">
-                          <div>
-                            <p className="font-bold text-zinc-200 uppercase">{item.bar_produtos?.nome || 'Insumo'}</p>
-                            <span className="text-[9px] text-zinc-500 font-mono">
-                              {item.quantidade}x R$ {item.preco_venda_snapshot.toFixed(2)}
-                            </span>
+                    <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                      {itensComanda.map((item) => {
+                        const subtotalItem = item.quantidade * item.preco_venda_aplicado
+                        return (
+                          <div key={item.id} className="flex justify-between items-center text-xs p-2.5 bg-zinc-950/60 border border-zinc-900 rounded-lg">
+                            <div>
+                              <p className="font-bold text-zinc-200 uppercase">{item.bar_produtos?.nome}</p>
+                              <span className="text-[9px] text-zinc-500 font-mono">
+                                {item.quantidade}x R$ {Number(item.preco_venda_aplicado).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="font-bold text-white font-mono">R$ {subtotalItem.toFixed(2)}</span>
+                              {comandaSelecionada.status === 'Aberta' && (
+                                <button onClick={() => handleRemoverItem(item)} className="text-red-500 hover:text-red-400 text-xs">❌</button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-bold text-white font-mono">R$ {item.subtotal.toFixed(2)}</span>
-                            {comandaSelecionada.status === 'aberta' && (
-                              <button 
-                                onClick={() => handleRemoverItem(item)}
-                                className="text-red-500 hover:text-red-400 text-xs transition"
-                              >
-                                ❌
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
 
                 <div className="mt-6 p-4 rounded-xl bg-zinc-950/40 border border-zinc-900 flex justify-between items-center">
-                  <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">Saldo de Consumo</span>
+                  <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">Saldo total</span>
                   <span className="text-xl font-mono font-black text-white">R$ {totalComandaSelecionada.toFixed(2)}</span>
                 </div>
               </div>
 
-              {comandaSelecionada.status === 'aberta' && (
+              {comandaSelecionada.status === 'Aberta' && (
                 <div className="mt-6 pt-4 border-t border-zinc-900 grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setModalLancamento(true)}
-                    className="py-2.5 bg-zinc-800 border border-zinc-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-zinc-700 transition-colors"
-                  >
+                  <button onClick={() => setModalLancamento(true)} className="py-2.5 bg-zinc-800 border border-zinc-700 text-white rounded-lg text-xs font-bold uppercase hover:bg-zinc-700 transition-colors">
                     ➕ Adicionar Item
                   </button>
-                  <button
-                    onClick={() => setModalFecharComanda(true)}
-                    className="py-2.5 bg-emerald-500 text-zinc-950 rounded-lg text-xs font-black uppercase tracking-wider hover:bg-emerald-400 transition-all shadow-[0_0_15px_rgba(16,185,129,0.1)]"
-                  >
+                  <button onClick={() => setModalFecharComanda(true)} className="py-2.5 bg-emerald-500 text-zinc-950 rounded-lg text-xs font-black uppercase hover:bg-emerald-400 transition-all">
                     💸 Encerrar Conta
                   </button>
                 </div>
@@ -639,7 +638,7 @@ export default function ComandasPage() {
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-zinc-500 italic py-12 text-center">
-              Selecione uma comanda do painel para lançamentos de consumo ou fechamento.
+              Selecione uma comanda ativa para operar.
             </div>
           )}
         </div>
@@ -650,80 +649,64 @@ export default function ComandasPage() {
       {modalNovaComanda && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border border-zinc-800 w-full max-w-sm rounded-xl p-6 shadow-2xl">
-            <h2 className="text-sm font-black text-white uppercase tracking-widest font-mono mb-4">🔓 Registrar Abertura</h2>
+            <h2 className="text-sm font-black text-white uppercase tracking-widest font-mono mb-4">🔓 Nova Comanda</h2>
             
             <form onSubmit={handleCriarComanda} className="space-y-4">
               <div>
-                <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Nº Comanda Física</label>
-                <div className="w-full bg-zinc-950/60 border border-zinc-850 rounded-lg p-2.5 text-xs text-zinc-400 font-mono italic select-none">
-                  ⚡ Gerado pelo Banco de Dados
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Tipo de Vínculo</label>
+                <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Tipo de Cliente</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setTipoCliente('visitante')}
-                    className={`py-2 rounded-lg border text-xs font-bold uppercase transition ${tipoCliente === 'visitante' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-950 border-zinc-900 text-zinc-550'}`}
+                    className={`py-2 rounded-lg border text-xs font-bold uppercase transition ${tipoCliente === 'visitante' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-950 border-zinc-900 text-zinc-500'}`}
                   >
                     💼 Visitante
                   </button>
                   <button
                     type="button"
                     onClick={() => setTipoCliente('membro')}
-                    className={`py-2 rounded-lg border text-xs font-bold uppercase transition ${tipoCliente === 'membro' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-950 border-zinc-900 text-zinc-550'}`}
+                    className={`py-2 rounded-lg border text-xs font-bold uppercase transition ${tipoCliente === 'membro' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-950 border-zinc-900 text-zinc-500'}`}
                   >
-                    🛡️ Irmão/Membro
+                    🛡️ Irmão / Membro
                   </button>
                 </div>
               </div>
 
-              {/* SELEÇÃO DO CLIENTE BASEADO NO VÍNCULO */}
               {tipoCliente === 'visitante' ? (
                 <div>
                   <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Nome do Visitante</label>
                   <input 
                     type="text" 
                     required
-                    value={nomeCliente}
-                    onChange={(e) => setNomeCliente(e.target.value)}
-                    placeholder="Ex: Pedro de Souza" 
+                    value={nomeVisitante}
+                    onChange={(e) => setNomeVisitante(e.target.value)}
+                    placeholder="Ex: Lucas Silva" 
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-zinc-700 focus:outline-none"
                   />
                 </div>
               ) : (
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Selecione o Irmão/Membro</label>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Selecione o Irmão</label>
                   <select
                     required
                     value={membroSelecionadoId}
                     onChange={(e) => setMembroSelecionadoId(e.target.value)}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-zinc-700 focus:outline-none"
                   >
-                    <option value="">Selecione o Irmão...</option>
+                    <option value="">Selecione...</option>
                     {membros.map((m) => (
-                      <option key={m.id} value={m.id}>{m.nome}</option>
+                      <option key={m.id} value={m.id}>{m.nome_completo}</option>
                     ))}
                   </select>
                 </div>
               )}
 
               <div className="flex gap-3 pt-4 border-t border-zinc-850">
-                <button 
-                  type="button" 
-                  onClick={() => setModalNovaComanda(false)}
-                  className="w-1/2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 font-bold text-xs uppercase text-white rounded-lg transition"
-                >
+                <button type="button" onClick={() => setModalNovaComanda(false)} className="w-1/2 px-4 py-2 bg-zinc-800 text-white font-bold text-xs uppercase rounded-lg">
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
-                  disabled={submitting}
-                  className="w-1/2 px-4 py-2 bg-white hover:bg-zinc-200 font-black text-xs uppercase text-zinc-950 rounded-lg transition"
-                >
-                  {submitting ? 'Aguarde...' : 'Criar Comanda'}
+                <button type="submit" disabled={submitting} className="w-1/2 px-4 py-2 bg-white text-zinc-950 font-black text-xs uppercase rounded-lg">
+                  {submitting ? 'Gravando...' : 'Abrir'}
                 </button>
               </div>
             </form>
@@ -735,12 +718,11 @@ export default function ComandasPage() {
       {modalLancamento && comandaSelecionada && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border border-zinc-800 w-full max-w-sm rounded-xl p-6 shadow-2xl">
-            <h2 className="text-sm font-black text-white uppercase tracking-widest font-mono mb-2">📥 Adicionar Consumo</h2>
-            <p className="text-[10px] text-zinc-500 uppercase mb-4">Comanda #{comandaSelecionada.numero} - {comandaSelecionada.nome_cliente}</p>
+            <h2 className="text-sm font-black text-white uppercase tracking-widest font-mono mb-4">📥 Lançar Insumo</h2>
             
             <form onSubmit={handleLancarItem} className="space-y-4">
               <div>
-                <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Selecione o Produto</label>
+                <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Produto</label>
                 <select 
                   required
                   value={produtoLancamentoId}
@@ -750,7 +732,7 @@ export default function ComandasPage() {
                   <option value="">Selecione...</option>
                   {produtos.map((p) => (
                     <option key={p.id} value={p.id} disabled={p.estoque_atual <= 0}>
-                      {p.nome} (Qtd: {p.estoque_atual}) - R$ {p.preco_venda.toFixed(2)}
+                      {p.nome} ({p.estoque_atual} un) - R$ {Number(p.preco_venda).toFixed(2)}
                     </option>
                   ))}
                 </select>
@@ -764,28 +746,16 @@ export default function ComandasPage() {
                   required
                   value={quantidadeLancamento}
                   onChange={(e) => setQuantidadeLancamento(parseInt(e.target.value) || 1)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 focus:border-zinc-700 focus:outline-none"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200"
                 />
               </div>
 
               <div className="flex gap-3 pt-4 border-t border-zinc-850">
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    setModalLancamento(false)
-                    setProdutoLancamentoId('')
-                    setQuantidadeLancamento(1)
-                  }}
-                  className="w-1/2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 font-bold text-xs uppercase text-white rounded-lg transition"
-                >
+                <button type="button" onClick={() => setModalLancamento(false)} className="w-1/2 px-4 py-2 bg-zinc-800 text-white font-bold text-xs uppercase rounded-lg">
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
-                  disabled={submitting}
-                  className="w-1/2 px-4 py-2 bg-white hover:bg-zinc-200 font-black text-xs uppercase text-zinc-950 rounded-lg transition"
-                >
-                  {submitting ? 'Gravando...' : 'Confirmar Lançamento'}
+                <button type="submit" disabled={submitting} className="w-1/2 px-4 py-2 bg-white text-zinc-950 font-black text-xs uppercase rounded-lg">
+                  Lançar
                 </button>
               </div>
             </form>
@@ -793,97 +763,46 @@ export default function ComandasPage() {
         </div>
       )}
 
-      {/* MODAL: FECHAR COMANDA */}
+      {/* MODAL: FECHAR COMANDA (Apenas opções à vista) */}
       {modalFecharComanda && comandaSelecionada && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border border-zinc-800 w-full max-w-sm rounded-xl p-6 shadow-2xl">
-            <h2 className="text-sm font-black text-white uppercase tracking-widest font-mono mb-2">💸 Encerrar Conta</h2>
-            <p className="text-[11px] text-zinc-500 uppercase mb-4">Total de Débito: <strong className="text-white">R$ {totalComandaSelecionada.toFixed(2)}</strong></p>
+            <h2 className="text-sm font-black text-white uppercase tracking-widest font-mono mb-2">💸 Fechamento</h2>
+            <p className="text-[11px] text-zinc-400 uppercase mb-4">Total: <strong className="text-white">R$ {totalComandaSelecionada.toFixed(2)}</strong></p>
             
             <form onSubmit={handleFecharComanda} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-zinc-500 mb-1.5">Forma de Acerto</label>
-                <div className="grid grid-cols-1 gap-2">
-                  <button
-                    key="pix"
-                    type="button"
-                    onClick={() => setMetodoPagamento('pix')}
-                    className={`py-3 rounded-lg border text-xs font-bold uppercase transition flex justify-between px-4 ${
-                      metodoPagamento === 'pix' ? 'bg-emerald-950/20 border-emerald-900 text-emerald-450' : 'bg-zinc-950 border-zinc-850 text-zinc-400'
-                    }`}
-                  >
-                    <span>📱 Pix (Imediato)</span>
-                    {metodoPagamento === 'pix' && <span>✓</span>}
-                  </button>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setMetodoPagamento('pix')}
+                  className={`w-full py-3 rounded-lg border text-xs font-bold uppercase flex justify-between px-4 ${metodoPagamento === 'pix' ? 'bg-emerald-950/20 border-emerald-900 text-emerald-450' : 'bg-zinc-950 border-zinc-850 text-zinc-400'}`}
+                >
+                  <span>📱 Pix</span>
+                </button>
 
-                  <button
-                    key="dinheiro"
-                    type="button"
-                    onClick={() => setMetodoPagamento('dinheiro')}
-                    className={`py-3 rounded-lg border text-xs font-bold uppercase transition flex justify-between px-4 ${
-                      metodoPagamento === 'dinheiro' ? 'bg-emerald-950/20 border-emerald-900 text-emerald-450' : 'bg-zinc-950 border-zinc-850 text-zinc-400'
-                    }`}
-                  >
-                    <span>💵 Dinheiro em Caixa</span>
-                    {metodoPagamento === 'dinheiro' && <span>✓</span>}
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => setMetodoPagamento('dinheiro')}
+                  className={`w-full py-3 rounded-lg border text-xs font-bold uppercase flex justify-between px-4 ${metodoPagamento === 'dinheiro' ? 'bg-emerald-950/20 border-emerald-900 text-emerald-450' : 'bg-zinc-950 border-zinc-850 text-zinc-400'}`}
+                >
+                  <span>💵 Dinheiro</span>
+                </button>
 
-                  <button
-                    key="cartao"
-                    type="button"
-                    onClick={() => setMetodoPagamento('cartao')}
-                    className={`py-3 rounded-lg border text-xs font-bold uppercase transition flex justify-between px-4 ${
-                      metodoPagamento === 'cartao' ? 'bg-emerald-950/20 border-emerald-900 text-emerald-450' : 'bg-zinc-950 border-zinc-850 text-zinc-400'
-                    }`}
-                  >
-                    <span>💳 Cartão de Crédito/Débito</span>
-                    {metodoPagamento === 'cartao' && <span>✓</span>}
-                  </button>
-
-                  {comandaSelecionada.tipo_cliente === 'membro' ? (
-                    <button
-                      key="pendurar"
-                      type="button"
-                      onClick={() => setMetodoPagamento('pendurar')}
-                      className={`py-3 rounded-lg border text-xs font-bold uppercase transition flex justify-between px-4 ${
-                        metodoPagamento === 'pendurar' ? 'bg-amber-950/20 border-amber-900 text-amber-500' : 'bg-zinc-950 border-zinc-850 text-zinc-400'
-                      }`}
-                    >
-                      <span>⚠️ Pendurar (Acerto Mensal)</span>
-                      {metodoPagamento === 'pendurar' && <span>✓</span>}
-                    </button>
-                  ) : (
-                    <div className="p-2 border border-dashed border-zinc-800 rounded bg-zinc-950 text-[9px] text-zinc-550 uppercase">
-                      🚫 Visitantes não podem pendurar consumo.
-                    </div>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setMetodoPagamento('cartao')}
+                  className={`w-full py-3 rounded-lg border text-xs font-bold uppercase flex justify-between px-4 ${metodoPagamento === 'cartao' ? 'bg-emerald-950/20 border-emerald-900 text-emerald-450' : 'bg-zinc-950 border-zinc-850 text-zinc-400'}`}
+                >
+                  <span>💳 Cartão</span>
+                </button>
               </div>
 
-              {metodoPagamento === 'pendurar' ? (
-                <p className="text-[9px] text-amber-500 uppercase leading-relaxed font-mono">
-                  🚨 Regra RNC-04 ativa: Esta conta será fechada para o bar, mas o lançamento de caixa só ocorrerá no pagamento do acerto mensal.
-                </p>
-              ) : (
-                <p className="text-[9px] text-zinc-500 uppercase leading-relaxed font-mono">
-                  🟢 O sistema registrará uma Entrada no caixa geral assim que confirmar.
-                </p>
-              )}
-
               <div className="flex gap-3 pt-4 border-t border-zinc-850">
-                <button 
-                  type="button" 
-                  onClick={() => setModalFecharComanda(false)}
-                  className="w-1/2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 font-bold text-xs uppercase text-white rounded-lg transition"
-                >
+                <button type="button" onClick={() => setModalFecharComanda(false)} className="w-1/2 px-4 py-2 bg-zinc-800 text-white font-bold text-xs uppercase rounded-lg">
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
-                  disabled={submitting}
-                  className="w-1/2 px-4 py-2 bg-white hover:bg-zinc-200 font-black text-xs uppercase text-zinc-950 rounded-lg transition"
-                >
-                  {submitting ? 'Finalizando...' : 'Confirmar Encerramento'}
+                <button type="submit" disabled={submitting} className="w-1/2 px-4 py-2 bg-white text-zinc-950 font-black text-xs uppercase rounded-lg">
+                  Confirmar Pagamento
                 </button>
               </div>
             </form>
@@ -893,4 +812,4 @@ export default function ComandasPage() {
 
     </main>
   )
-}
+} 
