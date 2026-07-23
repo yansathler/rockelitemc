@@ -100,20 +100,20 @@ export default function EditarRota({ params }: { params: Promise<{ id: string }>
         setBalizadorVeiculo(dataRota.balizador_veiculo || 'moto')
 
         // Puxa Elementos existentes
-const { data: dataElementos, error } = await supabase
-.from('rota_elementos')
-.select('*')
-.eq('rota_id', id)
-.order('ordem', { ascending: true })
+        const { data: dataElementos } = await supabase
+          .from('rota_elementos')
+          .select('*')
+          .eq('rota_id', id)
+          .order('ordem', { ascending: true })
 
-if (dataElementos) {
-setElementos(
-  dataElementos.map(el => ({
-    ...el,
-    id_temp: crypto.randomUUID() // ⚡ Solução segura, única e nativa
-  }))
-)
-}
+        if (dataElementos) {
+          setElementos(
+            dataElementos.map(el => ({
+              ...el,
+              id_temp: crypto.randomUUID() // ⚡ Solução segura, única e nativa
+            }))
+          )
+        }
 
         // Puxa Alertas existentes
         const { data: dataAlertas } = await supabase
@@ -123,7 +123,7 @@ setElementos(
           .order('ordem', { ascending: true })
         
         if (dataAlertas) {
-          setAlertas(dataAlertas.map(al => ({ ...al, id_temp: Math.random().toString() })))
+          setAlertas(dataAlertas.map(al => ({ ...al, id_temp: crypto.randomUUID() })))
         }
 
       } catch (err) {
@@ -169,10 +169,10 @@ setElementos(
 
   // --- FUNÇÕES DINÂMICAS DO ITINERÁRIO & ALERTAS ---
   const adicionarTrecho = () => {
-    setElementos([...elementos, { id_temp: Math.random().toString(), tipo: 'trecho', origem: '', destino: '', distancia_km: 0, tempo_estimado: '00:00', padrao_comboio: 'Zig-zag' }])
+    setElementos([...elementos, { id_temp: crypto.randomUUID(), tipo: 'trecho', origem: '', destino: '', distancia_km: 0, tempo_estimado: '00:00', padrao_comboio: 'Zig-zag' }])
   }
   const adicionarParada = () => {
-    setElementos([...elementos, { id_temp: Math.random().toString(), tipo: 'parada', local_nome: '', tempo_permanencia: '00:00' }])
+    setElementos([...elementos, { id_temp: crypto.randomUUID(), tipo: 'parada', local_nome: '', tempo_permanencia: '00:00' }])
   }
   const atualizarElemento = (id_temp: string, camposAlterados: Partial<ElementoRota>) => {
     setElementos(elementos.map(el => el.id_temp === id_temp ? { ...el, ...camposAlterados } : el))
@@ -181,7 +181,7 @@ setElementos(
     setElementos(elementos.filter(el => el.id_temp !== id_temp))
   }
   const adicionarAlerta = () => {
-    setAlertas([...alertas, { id_temp: Math.random().toString(), tipo_alerta: 'perigo', descricao: '' }])
+    setAlertas([...alertas, { id_temp: crypto.randomUUID(), tipo_alerta: 'perigo', descricao: '' }])
   }
   const atualizarAlerta = (id_temp: string, descricao: string, tipo_alerta?: 'perigo' | 'atencao' | 'informativo') => {
     setAlertas(alertas.map(al => al.id_temp === id_temp ? { ...al, descricao, ...(tipo_alerta && { tipo_alerta }) } : al))
@@ -314,7 +314,7 @@ setElementos(
         <button onClick={() => setPassoAtivo(3)} className={`pb-3 px-6 border-b-2 transition-all ${passoAtivo === 3 ? 'border-purple-500 text-white' : 'border-transparent text-zinc-500'}`}>03. Alertas</button>
       </div>
 
-      {/* CONTEÚDO DAS ABAS (Mesmo HTML renderizado ontem, adaptado para os estados atuais) */}
+      {/* CONTEÚDO DAS ABAS */}
       <div className="rounded-xl border border-zinc-900 bg-zinc-900/20 p-6 mb-8">
         {passoAtivo === 1 && (
           <div className="space-y-6">
@@ -371,7 +371,6 @@ setElementos(
             </div>
 
             <div className="grid gap-4 grid-cols-2 md:grid-cols-4 pt-4">
-              {/* Selects da escala operacional */}
               <div>
                 <span className="text-[10px] text-zinc-500 font-bold block mb-1">ROAD CAPTAIN</span>
                 <select value={roadCaptainId} onChange={e => setRoadCaptainId(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded p-1.5 text-xs text-white">
