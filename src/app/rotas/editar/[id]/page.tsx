@@ -100,15 +100,20 @@ export default function EditarRota({ params }: { params: Promise<{ id: string }>
         setBalizadorVeiculo(dataRota.balizador_veiculo || 'moto')
 
         // Puxa Elementos existentes
-        const { data: dataElementos } = await supabase
-          .from('rota_elementos')
-          .select('*')
-          .eq('rota_id', id)
-          .order('ordem', { ascending: true })
-        
-        if (dataElementos) {
-          setElementos(dataElementos.map(el => ({ ...el, id_temp: Math.random().toString() })))
-        }
+const { data: dataElementos, error } = await supabase
+.from('rota_elementos')
+.select('*')
+.eq('rota_id', id)
+.order('ordem', { ascending: true })
+
+if (dataElementos) {
+setElementos(
+  dataElementos.map(el => ({
+    ...el,
+    id_temp: crypto.randomUUID() // ⚡ Solução segura, única e nativa
+  }))
+)
+}
 
         // Puxa Alertas existentes
         const { data: dataAlertas } = await supabase
