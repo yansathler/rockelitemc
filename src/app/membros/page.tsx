@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../../lib/supabase'
+import { gerarPdfEmergenciaComboio } from '../../lib/pdfEmergencia'
 
 interface Membro {
   id: string
@@ -457,12 +458,9 @@ export default function Membros() {
       
       {/* 🧭 TOPO REESTRUTURADO E ALINHADO */}
       <div className="flex flex-col gap-4 border-b border-zinc-900 pb-6 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🛡️</span>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">Gestão de Membros</h1>
-            <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">Gerenciamento de membros e comando do Rock Elite MC</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">🛡️ Gestão de Membros</h1>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">Gerenciamento de membros e comando do Rock Elite MC</p>
         </div>
         
         {/* FILTROS E BOTÕES COESOS NA DIREITA */}
@@ -485,7 +483,7 @@ export default function Membros() {
             </select>
           </div>
 
-          {/* ↩ BOTÃO CORRETO: "VOLTAR AO DASH" EXATAMENTE NO MEIO */}
+          {/* BOTÃO VOLTAR AO DASHBOARD */}
           <button
             onClick={() => router.push('/dashboard')}
             className="rounded border border-zinc-800 bg-zinc-900/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-700 hover:text-white transition-all font-mono"
@@ -493,19 +491,28 @@ export default function Membros() {
             Voltar ao dash
           </button>
 
+          {/* BOTÃO DE EMERGÊNCIA (PDF COLETIVO) */}
+<button
+  type="button"
+  onClick={() => {
+    // 💡 FILTRO APLICADO: Apenas membros com status_ativo === true
+    const membrosAtivos = membros.filter(m => m.status_ativo)
+    gerarPdfEmergenciaComboio(membrosAtivos, 'Nacional')
+  }}
+  className="rounded-lg bg-red-950/40 border border-red-800/60 px-3 py-2 text-xs font-black uppercase text-red-400 hover:bg-red-900/50 hover:text-white transition-all font-mono flex items-center gap-2 cursor-pointer"
+>
+  🚨 Ficha de Emergência (PDF)
+</button>
+
+          {/* BOTÃO RECRUTAR IRMÃO (ABRE MODAL DE FORMULÁRIO) */}
           <button
             onClick={() => {
-              if (exibirFormulario) {
-                limparCampos()
-                setExibirFormulario(false)
-              } else {
-                limparCampos()
-                setExibirFormulario(true)
-              }
+              limparCampos()
+              setExibirFormulario(true)
             }}
             className="rounded bg-zinc-100 px-5 py-2 text-xs font-black uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors"
           >
-            {exibirFormulario ? '❌ Fechar Ficha' : '⚡ Recrutar Irmão'}
+            ⚡ Recrutar Irmão
           </button>
         </div>
       </div>
@@ -554,22 +561,189 @@ export default function Membros() {
 
       </div>
 
-      {/* 🟡 CORPO OPERACIONAL */}
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
+      {/* 🟡 LISTAGEM PRINCIPAL (AGORA EM LARGURA TOTAL) */}
+      <div className="rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 w-full">
         
-        {exibirFormulario && (
-          <div className="rounded-xl border border-zinc-900 bg-zinc-900/30 p-6 lg:col-span-5 h-fit max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
-              <h2 className="text-xs font-black text-white uppercase tracking-wider font-mono">
-                {idEdicao ? '📝 Alterar Cadastro' : 'Ficha de Alistamento'}
-              </h2>
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-5">
+          <h2 className="text-xs font-black text-white uppercase tracking-wider font-mono flex items-center gap-2">
+            <span>👥</span> Integrantes do Território
+          </h2>
+          
+          <div className="w-full sm:max-w-xs">
+            <input
+              type="text"
+              placeholder="🔍 Buscar por nome, tarjeta ou patente..."
+              value={filtroTexto}
+              onChange={(e) => setFiltroTexto(e.target.value)}
+              className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none placeholder-zinc-800 font-mono"
+            />
+          </div>
+        </div>
+        
+        {carregando ? (
+          <p className="text-xs text-zinc-500 italic uppercase tracking-wider font-mono p-6">Buscando na Sede...</p>
+        ) : membrosFiltradosTabela.length === 0 ? (
+          <p className="text-xs text-zinc-500 italic p-6 text-center border border-dashed border-zinc-900 rounded-lg uppercase tracking-wider font-mono">
+            Nenhum integrante encontrado para os critérios selecionados.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-zinc-300">
+              <thead className="bg-zinc-900/50 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-900 font-mono">
+                <tr>
+                  <th className="p-4">Membro / Documento</th>
+                  <th className="p-4">Tarjeta</th>
+                  <th className="p-4">Contato / Filial</th>
+                  <th className="p-4">Ficha Médica / SOS</th>
+                  <th className="p-4">Patente</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {membrosFiltradosTabela.map((membro) => {
+                  const chapterDoMembro = chapters.find(c => c.id === membro.chapter_id);
+                  
+                  return (
+                    <tr 
+                      key={membro.id} 
+                      onClick={() => carregarMembroParaEdicao(membro)}
+                      className={`transition-colors text-xs cursor-pointer ${membro.status_ativo ? 'hover:bg-zinc-900/50' : 'bg-red-950/5 hover:bg-red-950/10 opacity-60'}`}
+                      title="Clique para abrir a ficha do integrante"
+                    >
+                      <td className="p-4 flex items-center gap-3">
+                        {membro.foto_url ? (
+                          <img src={membro.foto_url} alt="Foto" className="h-9 w-9 rounded-full object-cover border border-zinc-800 shrink-0" />
+                        ) : (
+                          <div className="h-9 w-9 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-[9px] font-bold text-zinc-600 shrink-0">MC</div>
+                        )}
+                        <div>
+                          <div className="font-bold text-white text-sm flex items-center gap-2">
+                            {membro.nome_completo}
+                            {!membro.status_ativo && <span className="bg-red-900/80 text-[8px] tracking-wide text-red-200 px-1.5 py-0.5 rounded uppercase font-extrabold">Inativo</span>}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                            CPF: {membro.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        {membro.tarjeta_escrita ? (
+                          <div className="inline-block border border-zinc-800 bg-zinc-950 px-2.5 py-0.5 rounded text-center text-white font-mono tracking-widest uppercase text-[10px] shadow-inner font-bold">
+                            {membro.tarjeta_escrita}
+                          </div>
+                        ) : <span className="text-zinc-600">-</span>}
+                      </td>
+                      <td className="p-4">
+                        <div className="text-zinc-400 max-w-[160px] truncate">{membro.email || 'Sem e-mail'}</div>
+                        <div className="text-zinc-500 font-mono">{membro.telefone_pessoal}</div>
+                        <div className="text-[10px] text-zinc-500 font-bold uppercase mt-0.5 font-mono">
+                          📍 {chapterDoMembro ? chapterDoMembro.nome : 'Não Alocado'}
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="text-red-400 font-bold font-mono">🩸 Sangue: {membro.tipo_sanguineo || 'N/A'}</div>
+                        {membro.contato_emergencia_nome && (
+                          <div className="text-[10px] text-zinc-400 mt-0.5">
+                            🚨 {membro.contato_emergencia_nome} ({membro.contato_emergencia_fone})
+                          </div>
+                        )}
+                        <div className="text-[10px] text-zinc-500 mt-0.5 max-w-[150px] truncate" title={membro.alergias_descricao}>Alergias: {membro.alergias_descricao}</div>
+                      </td>
+                      <td className="p-4">
+                        <span className="rounded bg-zinc-900 px-2 py-0.5 uppercase font-bold text-zinc-400 border border-zinc-800 text-[9px] font-mono">
+                          {membro.tp_membro.replace('_', ' ')}
+                        </span>
+                        {membro.cargo_diretoria && (
+                          <div className="text-[9px] font-extrabold text-blue-400 mt-1 uppercase tracking-widest font-mono">
+                            ⚡ {membro.cargo_diretoria.replace('_', ' ')}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 🦅 MODAL POP-UP TÁTICO DE FORMULÁRIO (CADASTRO / EDIÇÃO) */}
+      {exibirFormulario && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-md animate-fadeIn">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+            
+            {/* CABEÇALHO COM DESTAQUE VISUAL DA FOTO & DADOS RÁPIDOS */}
+            <div className="p-6 bg-zinc-950/80 border-b border-zinc-800 relative">
+              
+              {/* Botão Fechar X no topo */}
+              <button 
+                type="button" 
+                onClick={() => { limparCampos(); setExibirFormulario(false); }}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-white text-lg font-bold p-1 transition-colors"
+              >
+                ✕
+              </button>
+
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <div className="h-16 w-16 rounded-full bg-zinc-900 border-2 border-zinc-700 flex items-center justify-center overflow-hidden shrink-0 shadow-lg">
+                    {arquivoFoto ? (
+                      <img src={URL.createObjectURL(arquivoFoto)} alt="Preview" className="h-full w-full object-cover" />
+                    ) : fotoUrl ? (
+                      <img src={fotoUrl} alt="Atual" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-xs text-zinc-600 font-black font-mono">REMC</span>
+                    )}
+                  </div>
+                  <label className="absolute -bottom-1 -right-1 bg-zinc-800 border border-zinc-600 hover:bg-zinc-700 text-white rounded-full p-1 cursor-pointer transition-all shadow-md">
+                    📸
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      capture="environment"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setArquivoFoto(e.target.files[0])
+                        }
+                      }}
+                      className="hidden" 
+                    />
+                  </label>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base font-black text-white uppercase tracking-wider font-mono">
+                      {idEdicao ? (nomeCompleto || 'Membro') : 'Alistamento de Integrante'}
+                    </h2>
+                    {idEdicao && (
+                      <span className={`text-[9px] px-2 py-0.5 rounded font-black font-mono uppercase tracking-wider ${statusAtivo ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}`}>
+                        {statusAtivo ? 'Ativo' : 'Inativo'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+                    {tarjetaEscrita && (
+                      <span className="bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-white font-bold tracking-widest uppercase">
+                        [{tarjetaEscrita}]
+                      </span>
+                    )}
+                    <span className="uppercase text-zinc-500 font-bold">
+                      {tpMembro.replace('_', ' ')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* AÇÕES ESPECIAIS DE EDIÇÃO NO CABEÇALHO */}
               {idEdicao && (
-                <div className="flex items-center gap-2">
+                <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center gap-2 justify-end">
                   <button
                     type="button"
                     onClick={handleResetarSenha}
                     disabled={salvandoDados}
-                    className="rounded bg-zinc-800 border border-zinc-700 text-zinc-300 px-3 py-1 text-xs font-bold uppercase hover:bg-zinc-700 transition-all disabled:opacity-40"
+                    className="rounded bg-zinc-800/80 border border-zinc-700 text-zinc-300 px-3 py-1 text-[10px] font-bold uppercase hover:bg-zinc-700 hover:text-white transition-all disabled:opacity-40 font-mono"
                   >
                     🔑 Resetar Senha
                   </button>
@@ -584,7 +758,7 @@ export default function Membros() {
                           setExibirModalInativar(true)
                         }
                       }}
-                      className="rounded bg-red-950 border border-red-900 text-red-400 px-3 py-1 text-xs font-bold uppercase hover:bg-red-900 hover:text-white transition-all"
+                      className="rounded bg-red-950/60 border border-red-900/80 text-red-400 px-3 py-1 text-[10px] font-bold uppercase hover:bg-red-900 hover:text-white transition-all font-mono"
                     >
                       💀 Inativar
                     </button>
@@ -592,23 +766,44 @@ export default function Membros() {
                 </div>
               )}
             </div>
-            
-            <div className="mb-6 flex border-b border-zinc-900 text-xs font-bold uppercase tracking-wider">
-              <button type="button" onClick={() => setAbaAtiva('pessoal')} className={`pb-3 pr-4 ${abaAtiva === 'pessoal' ? 'border-b border-white text-white' : 'text-zinc-500'}`}>👤 Pessoal</button>
-              <button type="button" onClick={() => setAbaAtiva('endereco')} className={`pb-3 px-4 ${abaAtiva === 'endereco' ? 'border-b border-white text-white' : 'text-zinc-500'}`}>📍 Endereço</button>
-              <button type="button" onClick={() => setAbaAtiva('saude')} className={`pb-3 px-4 ${abaAtiva === 'saude' ? 'border-b border-white text-white' : 'text-zinc-500'}`}>🩺 Saúde</button>
+
+            {/* BARRA DE NAVEGAÇÃO DAS ABAS (TABS) */}
+            <div className="flex border-b border-zinc-800 bg-zinc-950/40 text-xs font-bold uppercase tracking-wider font-mono">
+              <button 
+                type="button" 
+                onClick={() => setAbaAtiva('pessoal')} 
+                className={`flex-1 py-3 text-center transition-all ${abaAtiva === 'pessoal' ? 'border-b-2 border-white text-white bg-zinc-900/60' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                🪪 Pessoal & MC
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setAbaAtiva('saude')} 
+                className={`flex-1 py-3 text-center transition-all ${abaAtiva === 'saude' ? 'border-b-2 border-white text-white bg-zinc-900/60' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                🚨 Saúde / SOS
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setAbaAtiva('endereco')} 
+                className={`flex-1 py-3 text-center transition-all ${abaAtiva === 'endereco' ? 'border-b-2 border-white text-white bg-zinc-900/60' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                🏠 Endereço
+              </button>
             </div>
 
-            <form onSubmit={handleCadastrar} className="space-y-4">
+            {/* FORMULÁRIO EM CORPO ROLÁVEL */}
+            <form onSubmit={handleCadastrar} className="p-6 overflow-y-auto space-y-4 flex-1">
               
+              {/* ABA 1: PESSOAL & MC */}
               {abaAtiva === 'pessoal' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase tracking-wider">Chapter / Lotação Oficial *</label>
+                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase tracking-wider font-mono">Chapter / Lotação Oficial *</label>
                     <select 
                       value={chapterIdForm} 
                       onChange={(e) => setChapterIdForm(e.target.value)}
-                      className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none"
+                      className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none uppercase font-mono"
                       required
                     >
                       {chapters.map(c => (
@@ -618,94 +813,65 @@ export default function Membros() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Nome Completo *</label>
-                    <input type="text" value={nomeCompleto} onChange={(e) => setNomeCompleto(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" required />
+                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Nome Completo *</label>
+                    <input type="text" value={nomeCompleto} onChange={(e) => setNomeCompleto(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" required />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">E-mail (Contato)</label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Opcional" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">E-mail (Contato)</label>
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Opcional" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Telefone Pessoal *</label>
-                      <input type="text" value={telefonePessoal} onChange={(e) => setTelefonePessoal(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" required />
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Telefone Pessoal *</label>
+                      <input type="text" value={telefonePessoal} onChange={(e) => setTelefonePessoal(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" required />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">CPF *</label>
-                      <input type="text" value={cpf} onChange={(e) => setCpf(aplicarMascaraCPF(e.target.value))} placeholder="000.000.000-00" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" disabled={!!idEdicao} required />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">CPF *</label>
+                      <input type="text" value={cpf} onChange={(e) => setCpf(aplicarMascaraCPF(e.target.value))} placeholder="000.000.000-00" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" disabled={!!idEdicao} required />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Sexo</label>
-                      <select value={sexo} onChange={(e) => setSexo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Sexo</label>
+                      <select value={sexo} onChange={(e) => setSexo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono">
                         <option value="Masculino">Masculino</option>
                         <option value="Feminino">Feminino</option>
                       </select>
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Data Nascimento *</label>
-                      <input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" required />
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Data Nascimento *</label>
+                      <input type="date" value={dataNascimento} onChange={(e) => setDataNascimento(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" required />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Data de Filiação (MC) *</label>
-                      <input type="date" value={dataFiliacao} onChange={(e) => setDataFiliacao(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none cursor-pointer" required />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">
-                      Fotografia do Integrante {enviandoFoto && '⏳ (Enviando...)'}
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full bg-zinc-950 border border-zinc-900 flex items-center justify-center overflow-hidden shrink-0">
-                        {arquivoFoto ? (
-                          <img src={URL.createObjectURL(arquivoFoto)} alt="Preview" className="h-full w-full object-cover" />
-                        ) : fotoUrl ? (
-                          <img src={fotoUrl} alt="Atual" className="h-full w-full object-cover" />
-                        ) : (
-                          <span className="text-[10px] text-zinc-600 font-bold">MC</span>
-                        )}
-                      </div>
-
-                      <label className="w-full flex items-center justify-center rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 hover:text-white hover:border-zinc-700 cursor-pointer transition-colors text-center font-semibold uppercase tracking-wider truncate">
-                        {arquivoFoto ? '📸 Alterar' : '📷 Tirar/Escolher'}
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          capture="environment"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              setArquivoFoto(e.target.files[0])
-                            }
-                          }}
-                          className="hidden" 
-                        />
-                      </label>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Data de Filiação (MC) *</label>
+                      <input type="date" value={dataFiliacao} onChange={(e) => setDataFiliacao(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none cursor-pointer font-mono" required />
                     </div>
                   </div>
 
-                  <div className="border-t border-zinc-900 pt-3 grid grid-cols-2 gap-3">
+                  <div className="border-t border-zinc-800 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Identificação Tarjeta</label>
-                      <select value={tarjetaTipo} onChange={(e) => setTarjetaTipo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Identificação Tarjeta</label>
+                      <select value={tarjetaTipo} onChange={(e) => setTarjetaTipo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono">
                         <option value="nome">Primeiro Nome</option>
                         <option value="sobrenome">Sobrenome</option>
                         <option value="apelido">Apelido / Vulgo</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Escrita da Tarjeta</label>
-                      <input type="text" value={tarjetaEscrita} onChange={(e) => setTarjetaEscrita(e.target.value)} placeholder="O que vai bordado" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Escrita da Tarjeta</label>
+                      <input type="text" value={tarjetaEscrita} onChange={(e) => setTarjetaEscrita(e.target.value)} placeholder="O que vai bordado" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
                     </div>
                   </div>
-                  <div className="border-t border-zinc-900 pt-3 grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Patente Interna</label>
-                      <select value={tpMembro} onChange={(e) => { setTpMembro(e.target.value); if(e.target.value !== 'Membros_espelho') setVinculoMembroId(''); }} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
+
+                  <div className="border-t border-zinc-800 pt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Patente Interna</label>
+                      <select value={tpMembro} onChange={(e) => { setTpMembro(e.target.value); if(e.target.value !== 'Membros_espelho') setVinculoMembroId(''); }} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono">
                         <option value="prospect_I">Próspero / Prospect I</option>
                         <option value="prospect_II">Prospect II</option>
                         <option value="prospect_III">Prospect III</option>
@@ -714,11 +880,11 @@ export default function Membros() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Cargo Diretoria</label>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Cargo Diretoria</label>
                       <select 
                         value={cargoDiretoria || 'membro'} 
                         onChange={(e) => setCargoDiretoria(e.target.value)} 
-                        className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none"
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono"
                       >
                         <option value="membro">membro (Base)</option>
                         <option value="diretor_administrativo">diretor administrativo</option>
@@ -729,12 +895,12 @@ export default function Membros() {
                     </div> 
 
                     {tpMembro === 'Membros_espelho' && (
-                      <div className="col-span-3 mt-1">
-                        <label className="block text-[10px] font-bold text-red-400 mb-1 uppercase">Vincular ao Integrante Titular *</label>
+                      <div className="sm:col-span-3 mt-1">
+                        <label className="block text-[10px] font-bold text-red-400 mb-1 uppercase font-mono">Vincular ao Integrante Titular *</label>
                         <select 
                           value={vinculoMembroId} 
                           onChange={(e) => setVinculoMembroId(e.target.value)} 
-                          className="w-full rounded bg-zinc-950 border border-red-900/40 px-3 py-2 text-xs text-white focus:border-red-700 focus:outline-none"
+                          className="w-full rounded bg-zinc-950 border border-red-900/40 px-3 py-2 text-xs text-white focus:border-red-700 focus:outline-none font-mono"
                           required
                         >
                           <option value="">Selecione o membro titular...</option>
@@ -751,50 +917,12 @@ export default function Membros() {
                 </div>
               )}
 
-              {abaAtiva === 'endereco' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">CEP</label>
-                    <input type="text" value={cep} onChange={(e) => aplicarMascaraCEP(e.target.value)} placeholder="00000-000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Rua / Logradouro</label>
-                      <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Número</label>
-                      <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Complemento</label>
-                      <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Bairro</label>
-                      <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase">Cidade (Automático via CEP)</label>
-                      <input type="text" value={enderecoCidade} disabled className="w-full rounded bg-zinc-950 border border-zinc-900/50 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase">Estado (UF)</label>
-                      <input type="text" value={enderecoEstado} disabled placeholder="UF" className="w-full rounded bg-zinc-950 border border-zinc-900/50 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed text-center uppercase focus:outline-none" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
+              {/* ABA 2: SAÚDE & SOS */}
               {abaAtiva === 'saude' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Tipo Sanguíneo</label>
-                    <select value={tipoSanguineo} onChange={(e) => setTipoSanguineo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none">
+                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Tipo Sanguíneo / RH</label>
+                    <select value={tipoSanguineo} onChange={(e) => setTipoSanguineo(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono">
                       <option value="">Selecione o tipo sanguíneo</option>
                       <option value="A+">A+</option>
                       <option value="A-">A-</option>
@@ -807,170 +935,116 @@ export default function Membros() {
                     </select>
                   </div>
 
-                  <div className="border-t border-zinc-900 pt-3">
-                    <p className="text-[10px] font-bold uppercase text-zinc-500 mb-2 tracking-wider">Contato SOS (Emergência)</p>
-                    <div className="space-y-3">
+                  <div className="border-t border-zinc-800 pt-3">
+                    <p className="text-[10px] font-bold uppercase text-zinc-500 mb-2 tracking-wider font-mono">🚨 Contato SOS (Emergência Estrada)</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Nome do Contato</label>
-                        <input type="text" value={emergenciaNome} onChange={(e) => setEmergenciaNome(e.target.value)} placeholder="Ex: Maria (Esposa)" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
+                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Nome do Contato</label>
+                        <input type="text" value={emergenciaNome} onChange={(e) => setEmergenciaNome(e.target.value)} placeholder="Ex: Maria (Esposa)" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Telefone de Emergência</label>
-                        <input type="text" value={emergenciaFone} onChange={(e) => setEmergenciaFone(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-white focus:border-zinc-700 focus:outline-none" />
+                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Telefone de Emergência</label>
+                        <input type="text" value={emergenciaFone} onChange={(e) => setEmergenciaFone(aplicarMascaraTelefone(e.target.value))} placeholder="(00) 00000-0000" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
                       </div>
                     </div>
                   </div>
 
-                  <div className="border-t border-zinc-900 pt-3">
+                  <div className="border-t border-zinc-800 pt-3">
                     <div className="flex items-center gap-2 mb-2">
-                      <input type="checkbox" id="alergiaCheck" checked={possuiAlergia} onChange={(e) => setPossuiAlergia(e.target.checked)} className="h-4 w-4 rounded bg-zinc-950 border border-zinc-900 accent-zinc-100" />
-                      <label htmlFor="alergiaCheck" className="text-[10px] font-bold text-zinc-400 uppercase cursor-pointer">Possui alergia a medicação?</label>
+                      <input type="checkbox" id="alergiaCheck" checked={possuiAlergia} onChange={(e) => setPossuiAlergia(e.target.checked)} className="h-4 w-4 rounded bg-zinc-950 border border-zinc-800 accent-zinc-100" />
+                      <label htmlFor="alergiaCheck" className="text-[10px] font-bold text-zinc-400 uppercase cursor-pointer font-mono">Possui alergia a medicação / observações médicas?</label>
                     </div>
                     {possuiAlergia && (
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase">Descreva as medicações:</label>
-                        <textarea value={alergiasDescricao} onChange={(e) => setAlergiasDescricao(e.target.value)} className="w-full h-20 rounded bg-zinc-950 border border-zinc-900 p-3 text-xs text-white focus:border-zinc-700 focus:outline-none resize-none" />
+                        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Descreva detalhadamente:</label>
+                        <textarea value={alergiasDescricao} onChange={(e) => setAlergiasDescricao(e.target.value)} className="w-full h-24 rounded bg-zinc-950 border border-zinc-800 p-3 text-xs text-white focus:border-zinc-600 focus:outline-none resize-none font-mono" />
                       </div>
                     )}
                   </div>
                 </div>
               )}
 
-              <div className="border-t border-zinc-900 pt-4">
-                <button type="submit" disabled={enviandoFoto || salvandoDados} className="w-full rounded bg-zinc-100 py-2.5 text-xs font-black uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {/* ABA 3: ENDEREÇO */}
+              {abaAtiva === 'endereco' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">CEP (Busca Automática)</label>
+                    <input type="text" value={cep} onChange={(e) => aplicarMascaraCEP(e.target.value)} placeholder="00000-000" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Rua / Logradouro</label>
+                      <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Número</label>
+                      <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Complemento</label>
+                      <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Bairro</label>
+                      <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase font-mono">Cidade (Automático via CEP)</label>
+                      <input type="text" value={enderecoCidade} disabled className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed focus:outline-none font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase font-mono">Estado (UF)</label>
+                      <input type="text" value={enderecoEstado} disabled placeholder="UF" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed text-center uppercase focus:outline-none font-mono" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {erroForm && <p className="text-xs font-semibold text-red-400 bg-red-950/30 p-2.5 rounded border border-red-900 font-mono">{erroForm}</p>}
+
+              {/* RODAPÉ DO MODAL COM BOTÕES DE AÇÃO */}
+              <div className="border-t border-zinc-800 pt-4 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { limparCampos(); setExibirFormulario(false); }}
+                  className="rounded bg-zinc-800 border border-zinc-700 px-4 py-2 text-xs font-bold uppercase text-zinc-300 hover:bg-zinc-700 transition-all font-mono"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={enviandoFoto || salvandoDados} 
+                  className="rounded bg-zinc-100 px-6 py-2 text-xs font-black uppercase tracking-wider text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                >
                   {salvandoDados ? '⏳ Forjando Acesso...' : enviandoFoto ? '⏳ Enviando Foto...' : idEdicao ? '⚡ Atualizar Base' : 'Salvar na Base 🦅'}
                 </button>
               </div>
 
-              {erroForm && <p className="text-xs font-semibold text-red-400 bg-red-950/30 p-2 rounded border border-red-900">{erroForm}</p>}
             </form>
           </div>
-        )}
-
-        {/* LISTAGEM PRINCIPAL */}
-        <div className={`rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 ${exibirFormulario ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
-          
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-5">
-            <h2 className="text-xs font-black text-white uppercase tracking-wider font-mono flex items-center gap-2">
-              <span>👥</span> Integrantes do Território
-            </h2>
-            
-            <div className="w-full sm:max-w-xs">
-              <input
-                type="text"
-                placeholder="🔍 Buscar por nome, tarjeta ou patente..."
-                value={filtroTexto}
-                onChange={(e) => setFiltroTexto(e.target.value)}
-                className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-1.5 text-xs text-white focus:border-zinc-700 focus:outline-none placeholder-zinc-800"
-              />
-            </div>
-          </div>
-          
-          {carregando ? (
-            <p className="text-xs text-zinc-500 italic uppercase tracking-wider font-mono">Buscando na Sede...</p>
-          ) : membrosFiltradosTabela.length === 0 ? (
-            <p className="text-xs text-zinc-500 italic p-6 text-center border border-dashed border-zinc-900 rounded-lg uppercase tracking-wider">
-              Nenhum integrante encontrado para os critérios selecionados.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-zinc-300">
-                <thead className="bg-zinc-900/50 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-900 font-mono">
-                  <tr>
-                    <th className="p-4">Membro / Documento</th>
-                    <th className="p-4">Tarjeta</th>
-                    <th className="p-4">Contato / Filial</th>
-                    <th className="p-4">Ficha Médica / SOS</th>
-                    <th className="p-4">Patente</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-900">
-                  {membrosFiltradosTabela.map((membro) => {
-                    const chapterDoMembro = chapters.find(c => c.id === membro.chapter_id);
-                    
-                    return (
-                      <tr 
-                        key={membro.id} 
-                        onClick={() => carregarMembroParaEdicao(membro)}
-                        className={`transition-colors text-xs cursor-pointer ${membro.status_ativo ? 'hover:bg-zinc-900/50' : 'bg-red-950/5 hover:bg-red-950/10 opacity-60'}`}
-                        title="Clique para editar este integrante"
-                      >
-                        <td className="p-4 flex items-center gap-3">
-                          {membro.foto_url ? (
-                            <img src={membro.foto_url} alt="Foto" className="h-8 w-8 rounded-full object-cover border border-zinc-800" />
-                          ) : (
-                            <div className="h-8 w-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-[9px] font-bold text-zinc-600">MC</div>
-                          )}
-                          <div>
-                            <div className="font-bold text-white text-sm flex items-center gap-2">
-                              {membro.nome_completo}
-                              {!membro.status_ativo && <span className="bg-red-900/80 text-[8px] tracking-wide text-red-200 px-1.5 py-0.5 rounded uppercase font-extrabold">Inativo</span>}
-                            </div>
-                            <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                              CPF: {membro.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          {membro.tarjeta_escrita ? (
-                            <div className="inline-block border border-zinc-800 bg-zinc-950 px-2.5 py-0.5 rounded text-center text-white font-mono tracking-widest uppercase text-[10px] shadow-inner font-bold">
-                              {membro.tarjeta_escrita}
-                            </div>
-                          ) : <span className="text-zinc-600">-</span>}
-                        </td>
-                        <td className="p-4">
-                          <div className="text-zinc-400 max-w-[160px] truncate">{membro.email || 'Sem e-mail'}</div>
-                          <div className="text-zinc-500 font-mono">{membro.telefone_pessoal}</div>
-                          <div className="text-[10px] text-zinc-500 font-bold uppercase mt-0.5 font-mono">
-                            📍 {chapterDoMembro ? chapterDoMembro.nome : 'Não Alocado'}
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <div className="text-red-400 font-bold font-mono">🩸 Sangue: {membro.tipo_sanguineo || 'N/A'}</div>
-                          {membro.contato_emergencia_nome && (
-                            <div className="text-[10px] text-zinc-400 mt-0.5">
-                              🚨 {membro.contato_emergencia_nome} ({membro.contato_emergencia_fone})
-                            </div>
-                          )}
-                          <div className="text-[10px] text-zinc-500 mt-0.5 max-w-[150px] truncate" title={membro.alergias_descricao}>Alergias: {membro.alergias_descricao}</div>
-                        </td>
-                        <td className="p-4">
-                          <span className="rounded bg-zinc-900 px-2 py-0.5 uppercase font-bold text-zinc-400 border border-zinc-800 text-[9px] font-mono">
-                            {membro.tp_membro.replace('_', ' ')}
-                          </span>
-                          {membro.cargo_diretoria && (
-                            <div className="text-[9px] font-extrabold text-blue-400 mt-1 uppercase tracking-widest font-mono">
-                              ⚡ {membro.cargo_diretoria.replace('_', ' ')}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
-
-      </div>
+      )}
 
       {/* MODAL DE INATIVAÇÃO */}
       {exibirModalInativar && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-red-400 uppercase tracking-wider mb-2">Justificativa de Inativação</h3>
-            <p className="text-xs text-zinc-400 mb-4">
+            <h3 className="text-lg font-bold text-red-400 uppercase tracking-wider mb-2 font-mono">Justificativa de Inativação</h3>
+            <p className="text-xs text-zinc-400 mb-4 font-mono">
               Informe detalhadamente o motivo do desligamento ou afastamento de <strong className="text-white">{membroParaInativar?.nome_completo}</strong>. O registro ficará salvo permanentemente no histórico da irmandade.
             </p>
             <textarea
               value={justificativa}
               onChange={(e) => setJustificativa(e.target.value)}
               placeholder="Ex: Afastamento por motivos profissionais / Desligamento oficial da irmandade..."
-              className="w-full h-28 rounded bg-zinc-950 border border-zinc-800 p-3 text-sm text-white focus:border-red-900 focus:outline-none resize-none mb-4"
+              className="w-full h-28 rounded bg-zinc-950 border border-zinc-800 p-3 text-sm text-white focus:border-red-900 focus:outline-none resize-none mb-4 font-mono"
               required
             />
-            <div className="flex gap-3 justify-end text-xs font-bold uppercase">
+            <div className="flex gap-3 justify-end text-xs font-bold uppercase font-mono">
               <button
                 type="button"
                 onClick={() => { setExibirModalInativar(false); setJustificativa(''); }}

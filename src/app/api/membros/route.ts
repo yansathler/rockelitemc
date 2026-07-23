@@ -39,9 +39,12 @@ export async function PUT(request: Request) {
 
     const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-    // Força a atualização da senha para a padrão e ativa a flag novamente
+    // ⚡ Lendo a senha da variável de ambiente com fallback
+    const senhaPadrao = process.env.DEFAULT_RESET_PASSWORD || 'RockElite@123'
+
+    // Força a atualização da senha e ativa a flag novamente
     const { data, error } = await supabaseAdmin.auth.admin.updateUserById(idMembro, {
-      password: 'RockElite@123',
+      password: senhaPadrao,
       user_metadata: { primeiro_acesso: true } // 🔥 Obriga a trocar de novo
     })
 

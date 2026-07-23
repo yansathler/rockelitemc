@@ -20,7 +20,7 @@ interface CompetenciaPendente {
   mes: number
   ano: number
   label: string
-  valor_calculado: number // Guarda o valor exato daquele mês histórico
+  valor_calculado: number
 }
 
 interface MembroCompleto {
@@ -140,7 +140,6 @@ export default function Financeiro() {
         setMensalidadesDisponiveis(pendencias)
 
         if (pendencias.length > 0) {
-          // Se houver competência pendente, assume por padrão os dados da primeira da fila (mais antiga)
           const primeiraFila = pendencias[0]
           setNovoLancamento(prev => ({
             ...prev,
@@ -157,7 +156,6 @@ export default function Financeiro() {
     }
   }, [novoLancamento.membro_id, novoLancamento.categoria, membrosCompletos])
 
-  // Monitor para recalcular o valor se ele mudar a competência manualmente no combobox
   const handleMudarCompetencia = (valorCombo: string) => {
     if (!valorCombo) return
     const [mes, ano, valorHistorico] = valorCombo.split('-')
@@ -188,11 +186,9 @@ export default function Financeiro() {
 
   const carregandoConfiguracoes = async (): Promise<ConfigFinanceiro | null> => {
     try {
-      // Busca o dia de vencimento na tabela antiga
       const { data: configBase } = await supabase.from('config_financeiro').select('dia_vencimento').eq('id', 1).single()
       const diaVenc = configBase ? Number(configBase.dia_vencimento) : 15
 
-      // Busca todo o histórico de reajustes ordenados por vigência
       const { data: historicoDb } = await supabase
         .from('historico_valores_mensalidade')
         .select('*')
@@ -213,7 +209,6 @@ export default function Financeiro() {
 
       setConfig(payloadConfig)
 
-      // Alimenta os inputs do formulário com os dados mais recentes encontrados para facilitar a edição
       if (listaVigencias.length > 0) {
         const ultima = listaVigencias[listaVigencias.length - 1]
         setNovaVigenciaForm({
@@ -232,11 +227,9 @@ export default function Financeiro() {
     return null
   }
 
-  // FUNÇÃO AUXILIAR MATEMÁTICA: Descobre o valor histórico exato de uma competência
   const obterValorHistoricoMembro = (mes: number, ano: number, tipoMembro: string, historico: VigenciaValor[]): number => {
-    let valorEncontrado = tipoMembro?.toLowerCase().includes('prospect') ? 45.00 : 55.00 // Fallback seguro
+    let valorEncontrado = tipoMembro?.toLowerCase().includes('prospect') ? 45.00 : 55.00
     
-    // Varre as regras de vigência e fica com a mais atualizada que seja menor ou igual à data pesquisada
     for (const vigencia of historico) {
       if (ano > vigencia.ano_inicio || (ano === vigencia.ano_inicio && mes >= vigencia.mes_inicio)) {
         valorEncontrado = tipoMembro?.toLowerCase().includes('prospect') 
@@ -271,7 +264,7 @@ export default function Financeiro() {
 
       const hoje = new Date()
       const diaAtual = hoje.getDate()
-      const mesAtual = hoje.getMonth() // 0-11
+      const mesAtual = hoje.getMonth()
       const anoAtual = hoje.getFullYear()
 
       const formatadas: Transacao[] = (movimentacoes || []).map(mov => {
@@ -332,7 +325,6 @@ export default function Financeiro() {
           )
 
           if (!jaFoiPago) {
-            // Descobre dinamicamente qual era a regra de preço para esse mês/ano específico
             const valorHistoricoCompetencia = obterValorHistoricoMembro(
               mesBanco, 
               anoVarredura, 
@@ -403,15 +395,12 @@ export default function Financeiro() {
     }
   }
 
-  // GRAVAÇÃO DE CONFIGURAÇÃO DE REAJUSTES HISTÓRICOS AUTOMÁTICA
   const handleSalvarConfig = async (e: React.FormEvent) => {
     e.preventDefault()
     setSalvandoConfig(true)
     try {
-      // 1. Atualiza o dia padrão de vencimento na tabela geral
       await supabase.from('config_financeiro').update({ dia_vencimento: Number(novaVigenciaForm.dia_vencimento) }).eq('id', 1)
 
-      // 2. Registra o novo valor histórico na tabela de vigências
       const { error: erroInsert } = await supabase
         .from('historico_valores_mensalidade')
         .insert({
@@ -457,7 +446,7 @@ export default function Financeiro() {
           return
         }
 
-        const [mesEscolhido, anoEscolhido, valorOrigem] = novoLancamento.competencia_selecionada.split('-').map(Number)
+        const [mesEscolhido, anoEscolhido] = novoLancamento.competencia_selecionada.split('-').map(Number)
 
         const { data: jaPago } = await supabase
           .from('mensalidades')
@@ -479,7 +468,7 @@ export default function Financeiro() {
             membro_id: novoLancamento.membro_id,
             mes: mesEscolhido,
             ano: anoEscolhido,
-            valor_pago: Number(novoLancamento.valor) // Aceita alteração/desconto caso modificado na hora
+            valor_pago: Number(novoLancamento.valor)
           })
           .select()
           .single()
@@ -553,61 +542,59 @@ export default function Financeiro() {
 
   if (autenticado !== true) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0d0e11] text-xs font-bold text-zinc-600 uppercase tracking-widest">
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-xs font-mono font-bold text-zinc-600 uppercase tracking-widest">
         ⚡ Carregando Cofre do High Command...
       </div>
     )
   }
 
   return (
-    <main className="min-h-screen bg-[#0d0e11] p-6 text-[#f3f4f6] md:p-10 font-sans">
+    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10">
       
       {/* TOPO DA TELA */}
       <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-2xl">💵</span>
-            <h1 className="text-2xl font-bold tracking-tight text-white uppercase">Financeiro</h1>
+            <h1 className="page-title text-2xl md:text-3xl">Financeiro</h1>
           </div>
-          <p className="text-sm text-zinc-400 mt-1">Gerencie as finanças do seu Moto Clube com adimplência e histórico de reajustes</p>
+          <p className="text-xs text-zinc-400 mt-1">Gerencie as finanças do seu Moto Clube com adimplência e histórico de reajustes</p>
         </div>
 
         <div className="flex items-center gap-3">
           <button 
             onClick={() => router.push('/dashboard')}
-            className="rounded-lg bg-[#161920] border border-zinc-800 px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors uppercase tracking-wider"
+            className="rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors uppercase tracking-wider"
           >
             Voltar ao Dash
           </button>
           <button 
             onClick={() => calcularPainelFinanceiro(config)}
-            className="flex items-center gap-1.5 rounded-lg bg-[#161920] border border-zinc-800 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
           >
             🔄 Atualizar
           </button>
           <button 
             onClick={() => setExibirMenuConfig(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-[#161920] border border-zinc-800 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
           >
             Parametrização
           </button>
           <button 
-            onClick={() => setExibirModalNovaTransacao(true)}
-            className="flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition-colors shadow-lg"
-          >
-            + Nova Transação <span className="text-[10px] opacity-70">▼</span>
+            onClick={() => setExibirModalNovaTransacao(true)} className="rounded-lg bg-white px-5 py-2 text-xs font-black uppercase text-zinc-950 hover:bg-zinc-200 transition-all shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+            ➕ Nova Transação
           </button>
         </div>
       </div>
 
       {/* PAINEL DE CARDS DINÂMICOS */}
       <div className="mb-8 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-5">
           <div className="flex justify-between items-center text-zinc-400">
-            <span className="text-xs font-medium">Saldo</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Saldo</span>
             <span className="text-sm opacity-60">📁</span>
           </div>
-          <p className="mt-3 text-2xl font-bold text-white">
+          <p className="mt-3 text-2xl font-black font-mono text-white">
             R$ {saldoGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">Saldo acumulado atual</p>
@@ -616,13 +603,13 @@ export default function Financeiro() {
         <button
           type="button"
           onClick={handleClickReceitas}
-          className={`rounded-xl border bg-[#12141c] p-5 text-left transition-all cursor-pointer hover:border-emerald-700/50 ${filtroTipo === 'entrada' && visualizacaoAtiva === 'transacoes' ? 'border-emerald-500/50 ring-1 ring-emerald-500/30' : 'border-zinc-800/60'}`}
+          className={`rounded-xl border bg-zinc-900/50 p-5 text-left transition-all cursor-pointer hover:border-emerald-700/50 ${filtroTipo === 'entrada' && visualizacaoAtiva === 'transacoes' ? 'border-emerald-500/50 ring-1 ring-emerald-500/30' : 'border-zinc-800/60'}`}
         >
           <div className="flex justify-between items-center text-zinc-400">
-            <span className="text-xs font-medium">Receitas</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Receitas</span>
             <span className="text-sm text-emerald-500 font-bold">↗</span>
           </div>
-          <p className="mt-3 text-2xl font-bold text-emerald-500">
+          <p className="mt-3 text-2xl font-black font-mono text-emerald-500">
             R$ {entradasMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">Somatório deste mês</p>
@@ -631,24 +618,24 @@ export default function Financeiro() {
         <button
           type="button"
           onClick={handleClickDespesas}
-          className={`rounded-xl border bg-[#12141c] p-5 text-left transition-all cursor-pointer hover:border-red-700/50 ${filtroTipo === 'saida' && visualizacaoAtiva === 'transacoes' ? 'border-red-500/50 ring-1 ring-red-500/30' : 'border-zinc-800/60'}`}
+          className={`rounded-xl border bg-zinc-900/50 p-5 text-left transition-all cursor-pointer hover:border-red-700/50 ${filtroTipo === 'saida' && visualizacaoAtiva === 'transacoes' ? 'border-red-500/50 ring-1 ring-red-500/30' : 'border-zinc-800/60'}`}
         >
           <div className="flex justify-between items-center text-zinc-400">
-            <span className="text-xs font-medium">Despesas</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Despesas</span>
             <span className="text-sm text-red-400 font-bold">↘</span>
           </div>
-          <p className="mt-3 text-2xl font-bold text-[#f87171]">
+          <p className="mt-3 text-2xl font-black font-mono text-red-400">
             R$ {saidasMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">Somatório deste mês</p>
         </button>
 
-        <div className="rounded-xl border border-zinc-800/60 bg-[#12141c] p-5">
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-5">
           <div className="flex justify-between items-center text-zinc-400">
-            <span className="text-xs font-medium">Pendências</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Pendências</span>
             <span className="text-sm opacity-60">💳</span>
           </div>
-          <p className="mt-3 text-2xl font-bold text-amber-500">
+          <p className="mt-3 text-2xl font-black font-mono text-amber-500">
             R$ {pendenciasAReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">Inadimplência retroativa absoluta</p>
@@ -656,8 +643,8 @@ export default function Financeiro() {
       </div>
 
       {/* FILTROS — sempre visível */}
-      <div className="mb-6 rounded-xl border border-zinc-800/60 bg-[#12141c] p-4">
-        <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-white">
+      <div className="mb-6 rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-4">
+        <div className="flex items-center gap-2 mb-3 text-xs font-mono font-bold uppercase tracking-wider text-white">
           <span>⚙️</span> Filtros de Extrato
           {filtroTipo !== 'todos' && (
             <span className={`ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${filtroTipo === 'entrada' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-900/40' : 'bg-red-950/40 text-red-400 border border-red-900/40'}`}>
@@ -671,12 +658,12 @@ export default function Financeiro() {
             placeholder="Buscar transações..."
             value={filtroTexto}
             onChange={(e) => setFiltroTexto(e.target.value)}
-            className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 placeholder-zinc-600"
+            className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 placeholder-zinc-600"
           />
           <select
             value={filtroTempo}
             onChange={(e) => setFiltroTempo(e.target.value)}
-            className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
+            className="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
           >
             <option value="Este Mês">Este Mês</option>
             <option value="Todos">Todos os períodos</option>
@@ -684,13 +671,13 @@ export default function Financeiro() {
           <select
             value={filtroCategoria}
             onChange={(e) => setFiltroCategoria(e.target.value)}
-            className="rounded-lg bg-[#0d0e11] border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
+            className="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
           >
             <option value="Todos">Todos</option>
             <option value="Mensalidades">Mensalidades</option>
             <option value="Combustível">Combustível</option>
           </select>
-          <button onClick={limparFiltros} className="rounded-lg border border-zinc-800 bg-[#0d0e11] py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors">
+          <button onClick={limparFiltros} className="rounded-lg border border-zinc-800 bg-zinc-950 py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors cursor-pointer">
             Limpar Filtros
           </button>
         </div>
@@ -700,28 +687,25 @@ export default function Financeiro() {
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
         
         {/* COLUNA ESQUERDA */}
-        <div className="lg:col-span-8 rounded-xl border border-zinc-800/40 bg-[#12141c]/50 p-6">
+        <div className="lg:col-span-8 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-6">
           
           {visualizacaoAtiva === 'transacoes' && (
             <>
-              <h2 className="text-base font-bold text-white mb-1">
+              <h2 className="text-sm font-mono font-black uppercase text-white mb-1 tracking-wide">
                 $ Transações Recentes
-                {filtroTipo === 'entrada' && <span className="ml-2 text-emerald-400 text-xs font-medium">— Receitas</span>}
-                {filtroTipo === 'saida' && <span className="ml-2 text-red-400 text-xs font-medium">— Despesas</span>}
+                {filtroTipo === 'entrada' && <span className="ml-2 text-emerald-400 text-xs font-normal">— Receitas</span>}
+                {filtroTipo === 'saida' && <span className="ml-2 text-red-400 text-xs font-normal">— Despesas</span>}
               </h2>
               <p className="text-xs text-zinc-500 mb-6">
                 {filtroTipo === 'entrada' ? 'Entradas de caixa filtradas' : filtroTipo === 'saida' ? 'Saídas de caixa filtradas' : 'Últimas movimentações financeiras de caixa'}
               </p>
 
-              {/* AJUSTE VISUAL: Altura máxima definida para caber exatamente 5 transações confortavelmente. 
-                Se passar disso, a barra de rolagem é ativada suavemente.
-              */}
               <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
                 {transacoesFiltradas.length === 0 ? (
                   <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhuma movimentação encontrada.</p>
                 ) : (
                   transacoesFiltradas.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between rounded-xl bg-[#12141c] border border-zinc-800/80 p-4 hover:border-zinc-700/80 transition-all mr-1">
+                    <div key={t.id} className="flex items-center justify-between rounded-xl bg-zinc-900 border border-zinc-800 p-4 hover:border-zinc-700 transition-all mr-1">
                       <div className="flex items-center gap-3">
                         <div className={`h-8 w-8 rounded-lg flex items-center justify-center text-xs font-bold ${t.tipo === 'entrada' ? 'bg-emerald-950/40 text-emerald-400' : 'bg-red-950/40 text-red-400'}`}>
                           {t.tipo === 'entrada' ? '↗' : '↘'}
@@ -729,11 +713,11 @@ export default function Financeiro() {
                         <div>
                           <h4 className="text-xs font-bold text-zinc-200">{t.descricao}</h4>
                           <p className="text-[10px] text-zinc-500 mt-0.5">{t.categoria}</p>
-                          <p className="text-[9px] text-zinc-600 mt-0.5">{t.data_movimentacao}</p>
+                          <p className="text-[9px] font-mono text-zinc-600 mt-0.5">{t.data_movimentacao}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className={`text-xs font-bold block ${t.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <span className={`text-xs font-black font-mono block ${t.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}`}>
                           {t.tipo === 'entrada' ? '+' : '-'}R$ {t.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                         <span className="inline-block mt-1 text-[9px] text-emerald-500/90 bg-emerald-950/30 border border-emerald-900/40 px-2 py-0.5 rounded-full font-medium">
@@ -750,8 +734,8 @@ export default function Financeiro() {
           {visualizacaoAtiva === 'em_dia' && (
             <>
               <div className="flex justify-between items-center mb-1">
-                <h2 className="text-base font-bold text-emerald-400">👥 Membros Regularizados (Adimplentes)</h2>
-                <button onClick={() => setVisualizacaoAtiva('transacoes')} className="text-xs font-bold uppercase text-zinc-400 hover:text-white bg-zinc-800/50 border border-zinc-700 px-3 py-1 rounded">← Ver Transações</button>
+                <h2 className="text-sm font-mono font-black uppercase text-emerald-400 tracking-wide">👥 Membros Regularizados (Adimplentes)</h2>
+                <button onClick={() => setVisualizacaoAtiva('transacoes')} className="text-xs font-mono font-bold uppercase text-zinc-400 hover:text-white bg-zinc-800/50 border border-zinc-700 px-3 py-1 rounded cursor-pointer">← Ver Transações</button>
               </div>
               <p className="text-xs text-zinc-500 mb-6">Lista dos irmãos que estão com o colete e mensalidades em dia.</p>
 
@@ -760,19 +744,19 @@ export default function Financeiro() {
                   <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhum irmão nesta categoria no momento.</p>
                 ) : (
                   membrosEmDiaList.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between rounded-xl bg-[#12141c] border border-emerald-900/30 p-4 mr-1">
+                    <div key={m.id} className="flex items-center justify-between rounded-xl bg-zinc-900 border border-emerald-900/30 p-4 mr-1">
                       <div className="flex items-center gap-3">
                         {m.foto_url ? (
                           <img src={m.foto_url} alt="Membro" className="h-9 w-9 rounded-full object-cover border border-zinc-800" />
                         ) : (
-                          <div className="h-9 w-9 rounded-full bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-zinc-600">MC</div>
+                          <div className="h-9 w-9 rounded-full bg-zinc-950 flex items-center justify-center text-[10px] font-bold text-zinc-600">MC</div>
                         )}
                         <div>
                           <h4 className="text-xs font-bold text-white">{m.nome_completo}</h4>
                           <span className="inline-block border border-zinc-800 bg-zinc-950 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider text-zinc-300 mt-1 font-bold">{m.tarjeta_escrita || 'Sem Tarjeta'}</span>
                         </div>
                       </div>
-                      <span className="text-[10px] font-extrabold uppercase tracking-widest bg-emerald-950/50 text-emerald-400 border border-emerald-900/50 px-3 py-1 rounded-full">✓ Regular</span>
+                      <span className="text-[10px] font-mono font-black uppercase tracking-widest bg-emerald-950/50 text-emerald-400 border border-emerald-900/50 px-3 py-1 rounded-full">✓ Regular</span>
                     </div>
                   ))
                 )}
@@ -780,11 +764,11 @@ export default function Financeiro() {
             </>
           )}
 
-{visualizacaoAtiva === 'em_atraso' && (
+          {visualizacaoAtiva === 'em_atraso' && (
             <>
               <div className="flex justify-between items-center mb-1">
-                <h2 className="text-base font-bold text-red-400">⚠️ Linha de Inadimplência</h2>
-                <button onClick={() => setVisualizacaoAtiva('transacoes')} className="text-xs font-bold uppercase text-zinc-400 hover:text-white bg-zinc-800/50 border border-zinc-700 px-3 py-1 rounded">← Ver Transações</button>
+                <h2 className="text-sm font-mono font-black uppercase text-red-400 tracking-wide">⚠️ Linha de Inadimplência</h2>
+                <button onClick={() => setVisualizacaoAtiva('transacoes')} className="text-xs font-mono font-bold uppercase text-zinc-400 hover:text-white bg-zinc-800/50 border border-zinc-700 px-3 py-1 rounded cursor-pointer">← Ver Transações</button>
               </div>
               <p className="text-xs text-zinc-500 mb-6">Lista de irmãos com pendências financeiras calculadas conforme histórico de reajustes.</p>
 
@@ -793,19 +777,17 @@ export default function Financeiro() {
                   <p className="text-xs text-zinc-500 italic p-6 text-center">Nenhuma pendência encontrada! 🦅</p>
                 ) : (
                   membrosEmAtrasoList.map((m) => (
-                    <div key={m.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl bg-[#12141c] border border-red-900/30 p-4 hover:border-red-900/60 transition-all mr-1">
+                    <div key={m.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl bg-zinc-900 border border-red-900/30 p-4 hover:border-red-900/60 transition-all mr-1">
                       
-                      {/* LADO ESQUERDO: FOTO E INFORMAÇÕES DO MEMBRO */}
                       <div className="flex items-start gap-3">
                         {m.foto_url ? (
                           <img src={m.foto_url} alt="Membro" className="h-9 w-9 rounded-full object-cover border border-zinc-800 mt-0.5" />
                         ) : (
-                          <div className="h-9 w-9 rounded-full bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-zinc-600 mt-0.5">MC</div>
+                          <div className="h-9 w-9 rounded-full bg-zinc-950 flex items-center justify-center text-[10px] font-bold text-zinc-600 mt-0.5">MC</div>
                         )}
                         <div>
                           <h4 className="text-xs font-bold text-white">{m.nome_completo}</h4>
                           
-                          {/* Tags de Tarjeta e Contador de meses acumulados */}
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             <span className="inline-block border border-zinc-800 bg-zinc-950 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider text-zinc-300 font-bold">
                               {m.tarjeta_escrita || 'Sem Tarjeta'}
@@ -815,7 +797,6 @@ export default function Financeiro() {
                             </span>
                           </div>
 
-                          {/* Lista textual detalhada dos meses devidos */}
                           {m.mensalidades_pendentes && m.mensalidades_pendentes.length > 0 && (
                             <p className="text-[10px] text-zinc-500 mt-1.5 max-w-xs sm:max-w-md">
                               <span className="text-zinc-400 font-medium">Competências:</span>{' '}
@@ -827,9 +808,8 @@ export default function Financeiro() {
                         </div>
                       </div>
                       
-                      {/* LADO DIREITO: VALOR TOTAL E AÇÃO DE BAIXA */}
                       <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t border-zinc-800/50 pt-2 sm:pt-0 sm:border-0">
-                        <span className="text-xs font-bold text-red-400 block">
+                        <span className="text-xs font-black font-mono text-red-400 block">
                           R$ {m.valor_pendente?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                         <button 
@@ -844,7 +824,7 @@ export default function Financeiro() {
                             })
                             setExibirModalNovaTransacao(true)
                           }}
-                          className="mt-1 text-[9px] uppercase font-bold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-1 rounded transition-colors"
+                          className="mt-1 text-[9px] uppercase font-bold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-1 rounded transition-colors cursor-pointer"
                         >
                           💸 Dar Baixa
                         </button>
@@ -860,19 +840,19 @@ export default function Financeiro() {
         </div>
 
         {/* COLUNA DIREITA */}
-        <div className="lg:col-span-4 rounded-xl border border-zinc-800/40 bg-[#12141c]/50 p-6 flex flex-col justify-between">
+        <div className="lg:col-span-4 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-6 flex flex-col justify-between">
           <div>
-            <h2 className="text-base font-bold text-white mb-6 flex items-center gap-2">
+            <h2 className="text-sm font-mono font-black uppercase text-white mb-6 flex items-center gap-2 tracking-wide">
               <span>👥</span> Gestão de Membros
             </h2>
 
             <div className="space-y-3 text-xs font-medium">
               <div 
                 onClick={() => { setVisualizacaoAtiva('transacoes'); setFiltroTipo('todos') }}
-                className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'transacoes' ? 'bg-[#161920] border-zinc-700' : 'border-transparent hover:bg-zinc-900/30'}`}
+                className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'transacoes' ? 'bg-zinc-900 border-zinc-700' : 'border-transparent hover:bg-zinc-900/50'}`}
               >
                 <span className="text-zinc-400">Total de Membros Ativos</span>
-                <span className="text-white font-bold text-sm">{totalMembros}</span>
+                <span className="text-white font-mono font-bold text-sm">{totalMembros}</span>
               </div>
               
               <div 
@@ -880,7 +860,7 @@ export default function Financeiro() {
                 className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'em_dia' ? 'bg-emerald-950/20 border-emerald-800/50' : 'border-transparent hover:bg-emerald-950/10'}`}
               >
                 <span className="text-zinc-400 flex items-center gap-1.5">🟢 Membros em dia</span>
-                <span className="text-emerald-400 font-bold text-sm">{membrosEmDiaCount} <span className="text-[10px] text-zinc-600">▶</span></span>
+                <span className="text-emerald-400 font-mono font-bold text-sm">{membrosEmDiaCount} <span className="text-[10px] text-zinc-600">▶</span></span>
               </div>
 
               <div 
@@ -888,15 +868,15 @@ export default function Financeiro() {
                 className={`flex justify-between items-center py-2 px-3 rounded-lg border cursor-pointer transition-all ${visualizacaoAtiva === 'em_atraso' ? 'bg-red-950/20 border-red-800/50' : 'border-transparent hover:bg-red-950/10'}`}
               >
                 <span className="text-zinc-400 flex items-center gap-1.5">🔴 Membros em atraso</span>
-                <span className="text-red-400 font-bold text-sm">{membrosEmAtrasoCount} <span className="text-[10px] text-zinc-600">▶</span></span>
+                <span className="text-red-400 font-mono font-bold text-sm">{membrosEmAtrasoCount} <span className="text-[10px] text-zinc-600">▶</span></span>
               </div>
             </div>
           </div>
 
           <div className="pt-6 border-t border-zinc-800/60 mt-6">
             <div className="flex justify-between items-center text-xs font-medium mb-2">
-              <span className="text-zinc-400">Taxa de Adimplência Real</span>
-              <span className="text-white font-bold">{taxaAdimplencia}%</span>
+              <span className="text-zinc-400 uppercase tracking-wider text-[10px] font-bold">Taxa de Adimplência Real</span>
+              <span className="text-white font-mono font-bold">{taxaAdimplencia}%</span>
             </div>
             <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
               <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${taxaAdimplencia}%` }} />
@@ -909,10 +889,10 @@ export default function Financeiro() {
       {/* MODAL DE NOVO LANÇAMENTO */}
       {exibirModalNovaTransacao && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-[#12141c] p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h3 className="text-md font-bold text-white">📝 Novo Lançamento de Caixa</h3>
-              <button onClick={() => setExibirModalNovaTransacao(false)} className="text-zinc-500 hover:text-white">✕</button>
+              <h3 className="text-md font-mono font-bold text-white uppercase">📝 Novo Lançamento de Caixa</h3>
+              <button onClick={() => setExibirModalNovaTransacao(false)} className="text-zinc-500 hover:text-white cursor-pointer">✕</button>
             </div>
 
             <form onSubmit={handleCriarLancamento} className="space-y-4">
@@ -922,14 +902,14 @@ export default function Financeiro() {
                   <button
                     type="button"
                     onClick={() => setNovoLancamento({ ...novoLancamento, tipo: 'entrada', categoria: 'mensalidade', membro_id: '', valor: '', descricao: '', competencia_selecionada: '' })}
-                    className={`py-2 rounded-lg text-xs font-bold uppercase border transition-colors ${novoLancamento.tipo === 'entrada' ? 'bg-emerald-950/30 border-emerald-500 text-emerald-400' : 'bg-[#0d0e11] border-zinc-800 text-zinc-500'}`}
+                    className={`py-2 rounded-lg text-xs font-bold uppercase border transition-colors cursor-pointer ${novoLancamento.tipo === 'entrada' ? 'bg-emerald-950/30 border-emerald-500 text-emerald-400' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}
                   >
                     🟢 Entrada
                   </button>
                   <button
                     type="button"
                     onClick={() => setNovoLancamento({ ...novoLancamento, tipo: 'saida', categoria: 'sede', membro_id: '', valor: '', descricao: '', competencia_selecionada: '' })}
-                    className={`py-2 rounded-lg text-xs font-bold uppercase border transition-colors ${novoLancamento.tipo === 'saida' ? 'bg-red-950/30 border-red-500 text-red-400' : 'bg-[#0d0e11] border-zinc-800 text-zinc-500'}`}
+                    className={`py-2 rounded-lg text-xs font-bold uppercase border transition-colors cursor-pointer ${novoLancamento.tipo === 'saida' ? 'bg-red-950/30 border-red-500 text-red-400' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}
                   >
                     🔴 Saída
                   </button>
@@ -941,7 +921,7 @@ export default function Financeiro() {
                 <select
                   value={novoLancamento.categoria}
                   onChange={(e) => setNovoLancamento(prev => ({ ...prev, categoria: e.target.value, membro_id: '', valor: '', descricao: '', competencia_selecionada: '' }))}
-                  className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none cursor-pointer"
                 >
                   {novoLancamento.tipo === 'entrada' ? (
                     <>
@@ -967,7 +947,7 @@ export default function Financeiro() {
                     required
                     value={novoLancamento.membro_id}
                     onChange={(e) => setNovoLancamento({ ...novoLancamento, membro_id: e.target.value })}
-                    className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none cursor-pointer"
                   >
                     <option value="">Selecione o Membro...</option>
                     {membrosCompletos.map(m => (
@@ -977,7 +957,6 @@ export default function Financeiro() {
                 </div>
               )}
 
-              {/* COMBOBOX DE MENSALIDADES HISTÓRICAS DISPONÍVEIS */}
               {novoLancamento.categoria === 'mensalidade' && novoLancamento.membro_id && (
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
@@ -987,7 +966,7 @@ export default function Financeiro() {
                     required
                     value={novoLancamento.competencia_selecionada}
                     onChange={(e) => handleMudarCompetencia(e.target.value)}
-                    className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none cursor-pointer"
                   >
                     <option value="">Selecione o mês devido...</option>
                     {mensalidadesDisponiveis.map((m, idx) => (
@@ -1011,7 +990,7 @@ export default function Financeiro() {
                   required
                   value={novoLancamento.descricao}
                   onChange={(e) => setNovoLancamento({ ...novoLancamento, descricao: e.target.value })}
-                  className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none"
                 />
               </div>
 
@@ -1024,13 +1003,13 @@ export default function Financeiro() {
                   placeholder="0,00"
                   value={novoLancamento.valor}
                   onChange={(e) => setNovoLancamento({ ...novoLancamento, valor: e.target.value })}
-                  className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none"
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white font-mono focus:outline-none"
                 />
               </div>
 
               <div className="pt-2 flex gap-2">
-                <button type="button" onClick={() => setExibirModalNovaTransacao(false)} className="w-1/2 py-2 rounded-lg bg-zinc-800 text-xs font-semibold hover:bg-zinc-700">Cancelar</button>
-                <button type="submit" disabled={lancandoMovimentacao} className="w-1/2 py-2 rounded-lg bg-blue-600 text-xs font-semibold text-white hover:bg-blue-700">{lancandoMovimentacao ? 'Processando...' : 'Confirmar ⚡'}</button>
+                <button type="button" onClick={() => setExibirModalNovaTransacao(false)} className="w-1/2 py-2 rounded-lg bg-zinc-800 text-xs font-semibold hover:bg-zinc-700 cursor-pointer">Cancelar</button>
+                <button type="submit" disabled={lancandoMovimentacao} className="w-1/2 py-2 rounded-lg bg-blue-600 text-xs font-semibold text-white hover:bg-blue-700 cursor-pointer">{lancandoMovimentacao ? 'Processando...' : 'Confirmar ⚡'}</button>
               </div>
             </form>
           </div>
@@ -1040,42 +1019,42 @@ export default function Financeiro() {
       {/* DRAWER LATERAL DE CONFIGURAÇÕES / HISTÓRICO DE REAJUSTE */}
       {exibirMenuConfig && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-[#12141c] p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h3 className="text-md font-bold text-white">⚙️ Programar Novo Reajuste Histórico</h3>
-              <button onClick={() => setExibirMenuConfig(false)} className="text-zinc-500 hover:text-white">✕</button>
+              <h3 className="text-md font-mono font-bold text-white uppercase">⚙️ Programar Novo Reajuste Histórico</h3>
+              <button onClick={() => setExibirMenuConfig(false)} className="text-zinc-500 hover:text-white cursor-pointer">✕</button>
             </div>
 
             <form onSubmit={handleSalvarConfig} className="space-y-4">
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[10px] uppercase font-bold text-zinc-400 mb-1">Mês de Início</label>
-                  <input type="number" min="1" max="12" required value={novaVigenciaForm.mes_inicio} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, mes_inicio: Number(e.target.value) })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                  <input type="number" min="1" max="12" required value={novaVigenciaForm.mes_inicio} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, mes_inicio: Number(e.target.value) })} className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none font-mono" />
                 </div>
                 <div>
                   <label className="block text-[10px] uppercase font-bold text-zinc-400 mb-1">Ano de Início</label>
-                  <input type="number" required value={novaVigenciaForm.ano_inicio} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, ano_inicio: Number(e.target.value) })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                  <input type="number" required value={novaVigenciaForm.ano_inicio} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, ano_inicio: Number(e.target.value) })} className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none font-mono" />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Novo Valor Prospect (R$)</label>
-                <input type="number" step="0.01" required value={novaVigenciaForm.valor_prospect} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, valor_prospect: e.target.value })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                <input type="number" step="0.01" required value={novaVigenciaForm.valor_prospect} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, valor_prospect: e.target.value })} className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none font-mono" />
               </div>
 
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Novo Valor Full Patch (R$)</label>
-                <input type="number" step="0.01" required value={novaVigenciaForm.valor_full_patch} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, valor_full_patch: e.target.value })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                <input type="number" step="0.01" required value={novaVigenciaForm.valor_full_patch} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, valor_full_patch: e.target.value })} className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none font-mono" />
               </div>
 
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">Dia Vencimento Geral</label>
-                <input type="number" min="1" max="31" required value={novaVigenciaForm.dia_vencimento} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, dia_vencimento: parseInt(e.target.value, 10) || 15 })} className="w-full rounded-lg bg-[#0d0e11] border border-zinc-800 p-2 text-xs text-white focus:outline-none" />
+                <input type="number" min="1" max="31" required value={novaVigenciaForm.dia_vencimento} onChange={(e) => setNovaVigenciaForm({ ...novaVigenciaForm, dia_vencimento: parseInt(e.target.value, 10) || 15 })} className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white focus:outline-none font-mono" />
               </div>
 
               <div className="pt-2 flex gap-2">
-                <button type="button" onClick={() => setExibirMenuConfig(false)} className="w-1/2 py-2 rounded-lg bg-zinc-800 text-xs font-semibold hover:bg-zinc-700">Fechar</button>
-                <button type="submit" disabled={salvandoConfig} className="w-1/2 py-2 rounded-lg bg-emerald-600 text-xs font-semibold text-white hover:bg-emerald-700">{salvandoConfig ? 'Salvando...' : 'Gravar Vigência'}</button>
+                <button type="button" onClick={() => setExibirMenuConfig(false)} className="w-1/2 py-2 rounded-lg bg-zinc-800 text-xs font-semibold hover:bg-zinc-700 cursor-pointer">Fechar</button>
+                <button type="submit" disabled={salvandoConfig} className="w-1/2 py-2 rounded-lg bg-emerald-600 text-xs font-semibold text-white hover:bg-emerald-700 cursor-pointer">{salvandoConfig ? 'Salvando...' : 'Gravar Vigência'}</button>
               </div>
             </form>
           </div>
