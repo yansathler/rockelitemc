@@ -1,5 +1,7 @@
-import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { supabaseAdmin } from '../../../lib/supabase' // Ajuste o caminho do import conforme a sua estrutura
 
 export async function POST(request: Request) {
   try {
@@ -7,46 +9,91 @@ export async function POST(request: Request) {
     const { cpf, senha } = body
 
     if (!cpf || !senha) {
-      return NextResponse.json({ error: 'CPF e Senha são obrigatórios.' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'CPF e Senha são obrigatórios.' },
+        { status: 400 }
+      )
     }
 
     const cpfLimpo = cpf.replace(/\D/g, '')
-    const emailSintetico = `${cpfLimpo}@rockelite.internal`
 
-    // Inicializa o cliente com a Service Role para checar as tabelas sem travas de RLS
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-
-    // ⚡ 1. PROVA DOS NOVES: Busca o status do irmão diretamente na tabela antes de qualquer login
-    const { data: membro, error: erroMembro } = await supabaseAdmin
+    // 1. Busca o e-mail real e o status do irmão pelo CPF no banco de dados
+    const { data: membro, error: membroError } = await supabaseAdmin
       .from('membros')
-      .select('status_ativo')
+      .select('id, email, status, nome')
       .eq('cpf', cpfLimpo)
       .maybeSingle()
 
-    // Se o perfil existir e constar como INATIVO, barra imediatamente sem dó
-    if (membro && !membro.status_ativo) {
-      return NextResponse.json({ 
-        error: 'Acesso Negado. Este colete foi inativado pela administração do Moto Clube.' 
-      }, { status: 403 })
+    if (membroError || !membro) {
+      return NextResponse.json(
+        { error: 'CPF ou senha inválidos.' },
+        { status: 401 }
+      )
     }
 
-    // Se o membro não foi encontrado na tabela, avisa que as credenciais são inválidas
-    if (!membro) {
-      return NextResponse.json({ error: 'Acesso negado. CPF não cadastrado.' }, { status: 401 })
+    // 2. Valida se o membro está ativo
+    if (membro.status && membro.status.toLowerCase() !== 'ativo') {
+      return NextResponse.json(
+        { error: 'Acesso negado. Membro com cadastro inativo.' },
+        { status: 403 }
+      )
     }
 
-    // ⚡ 2. Só agora tentamos logar, pois sabemos que ele está ATIVO na base
-    // Como estamos no servidor, usamos um cliente comum do Supabase para fazer o login
-    // e retornar os dados do usuário, mas a sessão definitiva será firmada no front.
-    // Para simplificar e manter a segurança de cookies do Supabase padrão do Next.js,
-    // nós respondemos que ele está "LIBERADO" para logar.
-    
-    return NextResponse.json({ liberado: true, emailSintetico })
+    // 3. Prepara os cookies do Next.js para o Supabase SSR
+    const cookieStore = await cookies()
+    const supabaseServer = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll()
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              )
+            } catch {
+              // O método setAll pode falhar se chamado dentro de um Server Component puro,
+              // mas dentro de uma Rota de API (Route Handler) ele funciona perfeitamente.
+            }
+          },
+        },
+      }
+    )
 
+    // 4. Autentica no Supabase Auth usando o E-mail Real
+    const { data: authData, error: authError } =
+      await supabaseServer.auth.signInWithPassword({
+        email: membro.email,
+        password: senha,
+      })
+
+    if (authError) {
+      return NextResponse.json(
+        { error: 'CPF ou senha inválidos.' },
+        { status: 401 }
+      )
+    }
+
+    // 5. Verifica se é Primeiro Acesso
+    const isPrimeiroAcesso =
+      authData.user?.user_metadata?.primeiro_acesso === true
+
+    return NextResponse.json({
+      success: true,
+      primeiroAcesso: isPrimeiroAcesso,
+      user: {
+        id: authData.user.id,
+        nome: membro.nome,
+        email: membro.email,
+      },
+    })
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json(
+      { error: err.message || 'Erro interno no servidor.' },
+      { status: 500 }
+    )
   }
 }

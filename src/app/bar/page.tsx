@@ -263,7 +263,7 @@ export default function EstoqueBarPage() {
           </button>
           
           <button 
-            onClick={() => router.push('/bar/comandas')} 
+            onClick={() => router.push('/bar/comanda')} 
             className="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-black uppercase text-white hover:bg-emerald-500 transition-all shadow-[0_0_15px_rgba(16,185,129,0.15)]"
           >
             💸 Área de Vendas

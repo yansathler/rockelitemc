@@ -262,11 +262,19 @@ export default function CentralDeComandos() {
   const handleSignOut = async () => {
     const confirmar = window.confirm('Deseja realmente sair do sistema High Command?')
     if (!confirmar) return
-
+  
     try {
+      // 1. Encerra a sessão no Servidor e limpa os cookies HTTPOnly de sessão
+      await fetch('/api/logout', { method: 'POST' })
+  
+      // 2. Garante o logout no cliente (limpa estado do SDK se houver)
       await supabase.auth.signOut()
+  
+      // 3. Limpa o localStorage local
       localStorage.removeItem('@rockelite:membro_id')
-      router.replace('/')
+  
+      // 4. Redireciona o usuário limpando o cache da página
+      window.location.href = '/'
     } catch (err) {
       console.error('Erro ao deslogar da sede:', err)
     }

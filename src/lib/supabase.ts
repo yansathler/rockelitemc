@@ -1,6 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr'
 
-// Inicializa o cliente do Supabase para ser usado nas telas do app
+// Cliente Supabase exclusivo para o Navegador / Componentes React
 export const createClient = () =>
   createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
