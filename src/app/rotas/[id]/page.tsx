@@ -126,7 +126,7 @@ export default function DetalheRota({ params }: { params: Promise<{ id: string }
         <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-4 border-l-2 border-blue-500 pl-3">Cronograma da Estrada</h2>
         <div className="space-y-3">
           {elementos.map((el, idx) => (
-            <div key={el.id} className={`flex justify-between items-center p-3 rounded-lg border text-xs ${el.tipo === 'trecho' ? 'border-zinc-900 bg-zinc-950/60' : 'border-orange-950/20 bg-orange-950/5'}`}>
+            <div key={el.id || idx} className={`flex justify-between items-center p-3 rounded-lg border text-xs ${el.tipo === 'trecho' ? 'border-zinc-900 bg-zinc-950/60' : 'border-orange-950/20 bg-orange-950/5'}`}>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-zinc-600 font-bold">#{String(idx + 1).padStart(2, '0')}</span>
                 {el.tipo === 'trecho' ? (
@@ -191,8 +191,8 @@ export default function DetalheRota({ params }: { params: Promise<{ id: string }
         <div className="rounded-xl border border-red-950/40 bg-red-950/5 p-6">
           <h2 className="text-sm font-bold text-red-400 uppercase tracking-wider mb-4 flex items-center gap-2">🚨 Alertas Críticos e Segurança de Estrada</h2>
           <div className="space-y-2">
-            {alertas.map((al) => (
-              <div key={al.id} className="text-xs bg-zinc-950/60 p-3 rounded border border-red-900/30 text-zinc-300">
+            {alertas.map((al, idx) => (
+              <div key={al.id || idx} className="text-xs bg-zinc-950/60 p-3 rounded border border-red-900/30 text-zinc-300">
                 <span className="font-black text-red-500 uppercase tracking-widest text-[9px] mr-2">
                   {al.tipo_alerta === 'perigo' ? '[CRÍTICO]' : al.tipo_alerta === 'atencao' ? '[ATENÇÃO]' : '[INFO]'}
                 </span>

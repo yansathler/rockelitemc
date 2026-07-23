@@ -120,7 +120,7 @@ export default function CadastroRota() {
   // --- MANIPULAÇÃO DINÂMICA DE TRAJETOS E PARADAS ---
   const adicionarTrecho = () => {
     const novo: ElementoRota = {
-      id_temp: Math.random().toString(),
+      id_temp: crypto.randomUUID(),
       tipo: 'trecho',
       origem: '',
       destino: '',
@@ -133,7 +133,7 @@ export default function CadastroRota() {
 
   const adicionarParada = () => {
     const novo: ElementoRota = {
-      id_temp: Math.random().toString(),
+      id_temp: crypto.randomUUID(),
       tipo: 'parada',
       local_nome: '',
       tempo_permanencia: '00:00'
@@ -152,7 +152,7 @@ export default function CadastroRota() {
   // --- MANIPULAÇÃO DINÂMICA DE ALERTAS ---
   const adicionarAlerta = () => {
     const novo: AlertaRota = {
-      id_temp: Math.random().toString(),
+      id_temp: crypto.randomUUID(),
       tipo_alerta: 'perigo',
       descricao: ''
     }
@@ -399,7 +399,7 @@ export default function CadastroRota() {
               </div>
             </div>
 
-            {/* Escala do Comboio Operacional (Filtro conectado direto à base de membros ativos) */}
+            {/* Escala do Comboio Operacional */}
             <div className="border-t border-zinc-900 pt-6">
               <h3 className="text-sm font-bold text-white mb-1">Comboio Operacional</h3>
               <p className="text-[11px] text-zinc-500 mb-4">Selecione os oficiais encarregados da missão na estrada</p>
@@ -506,7 +506,7 @@ export default function CadastroRota() {
               </div>
             </div>
 
-            {/* Bloco de Alertas de Segurança (Representação das Sirenes Vermelhas) */}
+            {/* Bloco de Alertas de Segurança */}
             <div className="border-t border-zinc-900 pt-6">
               <div className="flex justify-between items-center mb-4">
                 <div>
