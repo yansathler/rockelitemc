@@ -127,14 +127,11 @@ export default function Membros() {
   }
 
   const aplicarMascaraCPF = (valor: string) => {
-    const v = valor.replace(/\D/g, '')
-    if (v.length <= 11) {
-      return v
-        .replace(/(\d{3})(\d)/, '$1.$2')
-        .replace(/(\d{3})(\d)/, '$1.$2')
-        .replace(/(\d{3})(\d{1,2})$/, '$1-$2')
-    }
-    return cpf
+    const v = valor.replace(/\D/g, '').slice(0, 11)
+    return v
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})$/, '$1-$2')
   }
 
   const aplicarMascaraTelefone = (valor: string) => {
@@ -148,22 +145,39 @@ export default function Membros() {
   }
 
   const aplicarMascaraCEP = async (valor: string) => {
-    const v = valor.replace(/\D/g, '')
-    if (v.length <= 8) {
-      setCep(v.replace(/(\d{5})(\d)/, '$1-$2'))
-    }
-    if (v.length === 8) {
+    // 1. Extrai APENAS os números (remove traços, pontos e espaços)
+    const apenasNumeros = valor.replace(/\D/g, '').slice(0, 8)
+    
+    // 2. Aplica a máscara no input (Ex: 28350-000)
+    const cepFormatado = apenasNumeros.length > 5 
+      ? `${apenasNumeros.slice(0, 5)}-${apenasNumeros.slice(5)}`
+      : apenasNumeros
+  
+    setCep(cepFormatado)
+  
+    // 3. Quando completar 8 dígitos, faz a busca
+    if (apenasNumeros.length === 8) {
       try {
-        const res = await fetch(`https://viacep.com.br/ws/${v}/json/`)
+        const res = await fetch(`https://viacep.com.br/ws/${apenasNumeros}/json/`)
         const dados = await res.json()
-        if (!dados.erro) {
-          setEnderecoRua(dados.logradouro || '')
-          setEnderecoBairro(dados.bairro || '')
+  
+        // Se não retornar a flag de erro explícita
+        if (!dados.erro && dados.localidade) {
+          // Preenche Cidade e UF obrigatoriamente
           setEnderecoCidade(dados.localidade || '')
           setEnderecoEstado(dados.uf || '')
+  
+          // Preenche Rua e Bairro apenas se a API retornar (CEPs de rua)
+          setEnderecoRua(dados.logradouro || '')
+          setEnderecoBairro(dados.bairro || '')
+          
+          setErroForm('') // Limpa qualquer mensagem de erro
+        } else {
+          setErroForm('⚠️ CEP não localizado na base dos Correios.')
         }
       } catch (err) {
-        console.error("Erro ao buscar CEP na Sede:", err)
+        console.error("Erro ao buscar CEP:", err)
+        setErroForm('⚠️ Erro ao consultar o CEP. Verifique a conexão.')
       }
     }
   }
@@ -178,7 +192,7 @@ export default function Membros() {
 
     if (dataChapters) {
       setChapters(dataChapters)
-      if (dataChapters.length > 0) setChapterIdForm(dataChapters[0].id)
+      if (dataChapters.length > 0 && !chapterIdForm) setChapterIdForm(dataChapters[0].id)
     }
 
     const { data: dataMembros } = await supabase
@@ -285,6 +299,7 @@ export default function Membros() {
     setExibirFormulario(true)
   }
 
+  // 🔑 RESET DE SENHA VIA SERVIDOR
   const handleResetarSenha = async () => {
     if (!idEdicao) return
     
@@ -294,9 +309,9 @@ export default function Membros() {
     setSalvandoDados(true)
     try {
       const res = await fetch('/api/membros', {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idMembro: idEdicao })
+        body: JSON.stringify({ acao: 'reset-senha', idMembro: idEdicao })
       })
 
       const dados = await res.json()
@@ -316,6 +331,7 @@ export default function Membros() {
     }
   }
 
+  // ⚡ SALVAR / RECRUTAR MEMBRO
   const handleCadastrar = async (e: React.FormEvent) => {
     e.preventDefault()
     setErroForm('')
@@ -338,6 +354,7 @@ export default function Membros() {
 
     let idRegistro = idEdicao
 
+    // Se for um novo cadastro, cria a conta no Supabase Auth via API Server-Side
     if (!idEdicao) {
       try {
         const resAuth = await fetch('/api/membros', {
@@ -345,6 +362,7 @@ export default function Membros() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             cpf: cpfLimpo,
+            email: email || null,
             senhaProvisoria: 'RockElite@123'
           })
         })
@@ -352,12 +370,12 @@ export default function Membros() {
         const dadosAuth = await resAuth.json()
 
         if (!resAuth.ok || dadosAuth.error) {
-          throw new Error(dadosAuth.error || 'Falha ao forjar autenticação no servidor.')
+          throw new Error(dadosAuth.error || 'Falha ao criar o usuário no servidor.')
         }
 
         idRegistro = dadosAuth.user.id
       } catch (err: any) {
-        setErroForm('Erro na Infraestrutura de Autenticação: ' + err.message)
+        setErroForm('Erro ao criar usuário no Auth: ' + err.message)
         setSalvandoDados(false)
         return
       }
@@ -419,54 +437,54 @@ export default function Membros() {
     }
   }
 
+  // 💀 INATIVAR MEMBRO E BANIR NO AUTH
   const handleInativarMembro = async () => {
     if (!membroParaInativar || !justificativa.trim()) return
 
-    const { error: erroMembro } = await supabase
-      .from('membros')
-      .update({ status_ativo: false })
-      .eq('id', membroParaInativar.id)
+    setSalvandoDados(true)
 
-    if (erroMembro) {
-      alert('Erro ao mudar status do irmão: ' + erroMembro.message)
-      return
-    }
-
-    const { error: erroLog } = await supabase
-      .from('logs_inativacao')
-      .insert([
-        {
-          membro_id: membroParaInativar.id,
+    try {
+      const res = await fetch('/api/membros', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idMembro: membroParaInativar.id,
+          statusAtivo: false,
           justificativa: justificativa.trim()
-        }
-      ])
+        })
+      })
 
-    if (erroLog) {
-      alert('Status alterado, mas houve erro ao registrar o Log de Auditoria: ' + erroLog.message)
-    } else {
-      setExibirModalInativar(false)
-      setJustificativa('')
-      setMembroParaInativar(null)
-      limparCampos()
-      setExibirFormulario(false)
-      inicializarDados()
+      const dados = await res.json()
+
+      if (!res.ok || dados.error) {
+        alert('Erro ao inativar membro: ' + (dados.error || 'Erro desconhecido.'))
+      } else {
+        alert('💀 Membro inativado com sucesso e acesso ao sistema bloqueado imediatamente!')
+        setExibirModalInativar(false)
+        setJustificativa('')
+        setMembroParaInativar(null)
+        limparCampos()
+        setExibirFormulario(false)
+        inicializarDados()
+      }
+    } catch (err: any) {
+      alert('Erro ao conectar com o servidor: ' + err.message)
+    } finally {
+      setSalvandoDados(false)
     }
   }
 
   return (
     <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10 relative space-y-6">
       
-      {/* 🧭 TOPO REESTRUTURADO E ALINHADO */}
+      {/* 🧭 TOPO REESTRUTURADO */}
       <div className="flex flex-col gap-4 border-b border-zinc-900 pb-6 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">🛡️ Gestão de Membros</h1>
           <p className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">Gerenciamento de membros e comando do Rock Elite MC</p>
         </div>
         
-        {/* FILTROS E BOTÕES COESOS NA DIREITA */}
         <div className="flex flex-wrap items-center gap-3">
-          
-          {/* SELETOR DE CHAPTER DINÂMICO */}
           <div className="flex items-center gap-2 border border-zinc-900 bg-zinc-900/40 px-3 py-1.5 rounded-lg">
             <span className="text-[10px] text-zinc-500 font-bold uppercase font-mono">Território:</span>
             <select 
@@ -483,7 +501,6 @@ export default function Membros() {
             </select>
           </div>
 
-          {/* BOTÃO VOLTAR AO DASHBOARD */}
           <button
             onClick={() => router.push('/dashboard')}
             className="rounded border border-zinc-800 bg-zinc-900/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-700 hover:text-white transition-all font-mono"
@@ -491,20 +508,17 @@ export default function Membros() {
             Voltar ao dash
           </button>
 
-          {/* BOTÃO DE EMERGÊNCIA (PDF COLETIVO) */}
-<button
-  type="button"
-  onClick={() => {
-    // 💡 FILTRO APLICADO: Apenas membros com status_ativo === true
-    const membrosAtivos = membros.filter(m => m.status_ativo)
-    gerarPdfEmergenciaComboio(membrosAtivos, 'Nacional')
-  }}
-  className="rounded-lg bg-red-950/40 border border-red-800/60 px-3 py-2 text-xs font-black uppercase text-red-400 hover:bg-red-900/50 hover:text-white transition-all font-mono flex items-center gap-2 cursor-pointer"
->
-  🚨 Ficha de Emergência (PDF)
-</button>
+          <button
+            type="button"
+            onClick={() => {
+              const membrosAtivos = membros.filter(m => m.status_ativo)
+              gerarPdfEmergenciaComboio(membrosAtivos, 'Nacional')
+            }}
+            className="rounded-lg bg-red-950/40 border border-red-800/60 px-3 py-2 text-xs font-black uppercase text-red-400 hover:bg-red-900/50 hover:text-white transition-all font-mono flex items-center gap-2 cursor-pointer"
+          >
+            🚨 Ficha de Emergência (PDF)
+          </button>
 
-          {/* BOTÃO RECRUTAR IRMÃO (ABRE MODAL DE FORMULÁRIO) */}
           <button
             onClick={() => {
               limparCampos()
@@ -517,10 +531,8 @@ export default function Membros() {
         </div>
       </div>
 
-      {/* 📊 CARDS SUPERIORES SELETORES */}
+      {/* 📊 CARDS SUPERIORES */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
-        
-        {/* Card Todos */}
         <div 
           onClick={() => setFiltroStatus('todos')}
           className={`rounded-xl border p-4 cursor-pointer transition-all ${filtroStatus === 'todos' ? 'border-zinc-700 bg-zinc-900/40' : 'border-zinc-900 bg-zinc-900/10 hover:border-zinc-800'}`}
@@ -533,7 +545,6 @@ export default function Membros() {
           <p className="mt-1 text-[9px] text-zinc-500 uppercase">Listagem geral do território</p>
         </div>
 
-        {/* Card Ativos */}
         <div 
           onClick={() => setFiltroStatus('ativos')}
           className={`rounded-xl border p-4 cursor-pointer transition-all ${filtroStatus === 'ativos' ? 'border-emerald-900 bg-emerald-950/10' : 'border-zinc-900 bg-zinc-900/10 hover:border-zinc-800'}`}
@@ -546,7 +557,6 @@ export default function Membros() {
           <p className="mt-1 text-[9px] text-zinc-500 uppercase">Prontos para a pista</p>
         </div>
 
-        {/* Card Inativos */}
         <div 
           onClick={() => setFiltroStatus('inativos')}
           className={`rounded-xl border p-4 cursor-pointer transition-all ${filtroStatus === 'inativos' ? 'border-red-900 bg-red-950/10' : 'border-zinc-900 bg-zinc-900/10 hover:border-zinc-800'}`}
@@ -558,12 +568,10 @@ export default function Membros() {
           <p className="mt-2 text-2xl font-black text-red-400 font-mono">{carregando ? '...' : qtdInativos}</p>
           <p className="mt-1 text-[9px] text-zinc-500 uppercase">Histórico de afastamentos</p>
         </div>
-
       </div>
 
-      {/* 🟡 LISTAGEM PRINCIPAL (AGORA EM LARGURA TOTAL) */}
+      {/* 🟡 LISTAGEM PRINCIPAL */}
       <div className="rounded-xl border border-zinc-900 bg-zinc-900/10 p-6 w-full">
-        
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-5">
           <h2 className="text-xs font-black text-white uppercase tracking-wider font-mono flex items-center gap-2">
             <span>👥</span> Integrantes do Território
@@ -667,15 +675,12 @@ export default function Membros() {
         )}
       </div>
 
-      {/* 🦅 MODAL POP-UP TÁTICO DE FORMULÁRIO (CADASTRO / EDIÇÃO) */}
+      {/* 🦅 MODAL POP-UP DE FORMULÁRIO */}
       {exibirFormulario && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-md animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
             
-            {/* CABEÇALHO COM DESTAQUE VISUAL DA FOTO & DADOS RÁPIDOS */}
             <div className="p-6 bg-zinc-950/80 border-b border-zinc-800 relative">
-              
-              {/* Botão Fechar X no topo */}
               <button 
                 type="button" 
                 onClick={() => { limparCampos(); setExibirFormulario(false); }}
@@ -736,7 +741,6 @@ export default function Membros() {
                 </div>
               </div>
 
-              {/* AÇÕES ESPECIAIS DE EDIÇÃO NO CABEÇALHO */}
               {idEdicao && (
                 <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center gap-2 justify-end">
                   <button
@@ -767,7 +771,6 @@ export default function Membros() {
               )}
             </div>
 
-            {/* BARRA DE NAVEGAÇÃO DAS ABAS (TABS) */}
             <div className="flex border-b border-zinc-800 bg-zinc-950/40 text-xs font-bold uppercase tracking-wider font-mono">
               <button 
                 type="button" 
@@ -792,10 +795,8 @@ export default function Membros() {
               </button>
             </div>
 
-            {/* FORMULÁRIO EM CORPO ROLÁVEL */}
             <form onSubmit={handleCadastrar} className="p-6 overflow-y-auto space-y-4 flex-1">
               
-              {/* ABA 1: PESSOAL & MC */}
               {abaAtiva === 'pessoal' && (
                 <div className="space-y-4">
                   <div>
@@ -819,8 +820,8 @@ export default function Membros() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">E-mail (Contato)</label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Opcional" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">E-mail Real (Contato/Login)</label>
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="membro@email.com" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Telefone Pessoal *</label>
@@ -917,7 +918,6 @@ export default function Membros() {
                 </div>
               )}
 
-              {/* ABA 2: SAÚDE & SOS */}
               {abaAtiva === 'saude' && (
                 <div className="space-y-4">
                   <div>
@@ -964,49 +964,59 @@ export default function Membros() {
                 </div>
               )}
 
-              {/* ABA 3: ENDEREÇO */}
-              {abaAtiva === 'endereco' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">CEP (Busca Automática)</label>
-                    <input type="text" value={cep} onChange={(e) => aplicarMascaraCEP(e.target.value)} placeholder="00000-000" className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="sm:col-span-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Rua / Logradouro</label>
-                      <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Número</label>
-                      <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Complemento</label>
-                      <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Bairro</label>
-                      <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="sm:col-span-2">
-                      <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase font-mono">Cidade (Automático via CEP)</label>
-                      <input type="text" value={enderecoCidade} disabled className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed focus:outline-none font-mono" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase font-mono">Estado (UF)</label>
-                      <input type="text" value={enderecoEstado} disabled placeholder="UF" className="w-full rounded bg-zinc-950 border border-zinc-900 px-3 py-2 text-xs text-zinc-400 opacity-60 cursor-not-allowed text-center uppercase focus:outline-none font-mono" />
-                    </div>
-                  </div>
-                </div>
-              )}
+{abaAtiva === 'endereco' && (
+  <div className="space-y-4">
+    <div>
+      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">
+        CEP (Digite os 8 números)
+      </label>
+      <input 
+        type="text" 
+        value={cep} 
+        onChange={(e) => aplicarMascaraCEP(e.target.value)} 
+        placeholder="00000-000" 
+        maxLength={9}
+        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" 
+      />
+    </div>
+
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="sm:col-span-2">
+        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Rua / Logradouro</label>
+        <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+      </div>
+      <div>
+        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Número</label>
+        <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+      </div>
+    </div>
+
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div>
+        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Complemento</label>
+        <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+      </div>
+      <div>
+        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Bairro</label>
+        <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+      </div>
+    </div>
+
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="sm:col-span-2">
+        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Cidade</label>
+        <input type="text" value={enderecoCidade} onChange={(e) => setEnderecoCidade(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+      </div>
+      <div>
+        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Estado (UF)</label>
+        <input type="text" value={enderecoEstado} onChange={(e) => setEnderecoEstado(e.target.value)} placeholder="UF" maxLength={2} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none text-center uppercase font-mono" />
+      </div>
+    </div>
+  </div>
+)}
 
               {erroForm && <p className="text-xs font-semibold text-red-400 bg-red-950/30 p-2.5 rounded border border-red-900 font-mono">{erroForm}</p>}
 
-              {/* RODAPÉ DO MODAL COM BOTÕES DE AÇÃO */}
               <div className="border-t border-zinc-800 pt-4 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -1035,7 +1045,7 @@ export default function Membros() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full shadow-2xl">
             <h3 className="text-lg font-bold text-red-400 uppercase tracking-wider mb-2 font-mono">Justificativa de Inativação</h3>
             <p className="text-xs text-zinc-400 mb-4 font-mono">
-              Informe detalhadamente o motivo do desligamento ou afastamento de <strong className="text-white">{membroParaInativar?.nome_completo}</strong>. O registro ficará salvo permanentemente no histórico da irmandade.
+              Informe detalhadamente o motivo do desligamento ou afastamento de <strong className="text-white">{membroParaInativar?.nome_completo}</strong>. O registro ficará salvo permanentemente no histórico da irmandade e o login dele será bloqueado.
             </p>
             <textarea
               value={justificativa}
@@ -1055,10 +1065,10 @@ export default function Membros() {
               <button
                 type="button"
                 onClick={handleInativarMembro}
-                disabled={!justificativa.trim()}
+                disabled={!justificativa.trim() || salvandoDados}
                 className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Confirmar Baixa 💀
+                {salvandoDados ? 'Inativando...' : 'Confirmar Baixa 💀'}
               </button>
             </div>
           </div>

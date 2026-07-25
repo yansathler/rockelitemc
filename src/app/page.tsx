@@ -20,14 +20,16 @@ export default function Login() {
   const [confirmarNovaSenha, setConfirmarNovaSenha] = useState('')
 
   // Função para aplicar máscara de CPF (000.000.000-00) dinamicamente
-  const formatarCPF = (valor: string) => {
-    const apenasNumeros = valor.replace(/\D/g, '')
-    return apenasNumeros
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d{1,2})$/, '$1-$2')
-      .substring(0, 14)
-  }
+const formatarCPF = (valor: string) => {
+  // 1. Pega no máximo 11 números digitados
+  const apenasNumeros = valor.replace(/\D/g, '').slice(0, 11)
+
+  // 2. Aplica a máscara dinamicamente conforme o usuário digita
+  return apenasNumeros
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2')
+}
 
   // 1. Executa o login com pré-validação rigorosa de status no servidor
   const handleLogin = async (e: React.FormEvent) => {
