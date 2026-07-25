@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../lib/supabase' // Ajuste o caminho do import conforme a sua estrutura
+import { supabaseAdmin } from '../../../lib/supabase' // Ajuste a quantidade de ../ conforme a pasta exata
 
 export async function POST(request: Request) {
   try {
@@ -15,31 +15,33 @@ export async function POST(request: Request) {
       )
     }
 
+    // 1. Prepara as duas variações do CPF (Apenas Números vs Formatado com Pontos/Traço)
     const cpfLimpo = cpf.replace(/\D/g, '')
+    const cpfFormatado = cpfLimpo.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
 
-    // 1. Busca o e-mail real e o status do irmão pelo CPF no banco de dados
+    // 2. Busca o membro permitindo encontrar o CPF limpo OU formatado
     const { data: membro, error: membroError } = await supabaseAdmin
       .from('membros')
-      .select('id, email, status, nome')
-      .eq('cpf', cpfLimpo)
+      .select('id, email, status_ativo, nome_completo, cpf')
+      .or(`cpf.eq.${cpfLimpo},cpf.eq.${cpfFormatado}`)
       .maybeSingle()
 
     if (membroError || !membro) {
       return NextResponse.json(
-        { error: 'CPF ou senha inválidos.' },
+        { error: 'Acesso negado. CPF não encontrado no cadastro.' },
         { status: 401 }
       )
     }
 
-    // 2. Valida se o membro está ativo
-    if (membro.status && membro.status.toLowerCase() !== 'ativo') {
+    // 3. Valida a coluna booleana 'status_ativo' da sua tabela
+    if (membro.status_ativo === false) {
       return NextResponse.json(
         { error: 'Acesso negado. Membro com cadastro inativo.' },
         { status: 403 }
       )
     }
 
-    // 3. Prepara os cookies do Next.js para o Supabase SSR
+    // 4. Configura os Cookies do SSR do Supabase
     const cookieStore = await cookies()
     const supabaseServer = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,38 +57,48 @@ export async function POST(request: Request) {
                 cookieStore.set(name, value, options)
               )
             } catch {
-              // O método setAll pode falhar se chamado dentro de um Server Component puro,
-              // mas dentro de uma Rota de API (Route Handler) ele funciona perfeitamente.
+              // Tratamento para escopo de Route Handler
             }
           },
         },
       }
     )
 
-    // 4. Autentica no Supabase Auth usando o E-mail Real
+    // 5. Tenta autenticar no Supabase Auth usando o E-mail REAL salvo na tabela
     const { data: authData, error: authError } =
       await supabaseServer.auth.signInWithPassword({
         email: membro.email,
         password: senha,
       })
 
-    if (authError) {
-      return NextResponse.json(
-        { error: 'CPF ou senha inválidos.' },
-        { status: 401 }
-      )
+    let usuarioAutenticado = authData.user
+
+    // Fallback: Se falhar com e-mail real, tenta o e-mail sintético (para membros legados)
+    if (authError || !usuarioAutenticado) {
+      const emailSintetico = `${cpfLimpo}@rockelite.internal`
+      const { data: authSintetico, error: errSintetico } =
+        await supabaseServer.auth.signInWithPassword({
+          email: emailSintetico,
+          password: senha,
+        })
+
+      if (errSintetico || !authSintetico.user) {
+        return NextResponse.json(
+          { error: 'Acesso negado. CPF ou Senha inválidos.' },
+          { status: 401 }
+        )
+      }
+
+      usuarioAutenticado = authSintetico.user
     }
 
-    // 5. Verifica se é Primeiro Acesso
-    const isPrimeiroAcesso =
-      authData.user?.user_metadata?.primeiro_acesso === true
-
+    // 6. Retorna a resposta que o seu page.tsx precisa para prosseguir
     return NextResponse.json({
       success: true,
-      primeiroAcesso: isPrimeiroAcesso,
+      emailSintetico: usuarioAutenticado.email, // Devolve o e-mail autenticado com segurança
       user: {
-        id: authData.user.id,
-        nome: membro.nome,
+        id: usuarioAutenticado.id,
+        nome: membro.nome_completo,
         email: membro.email,
       },
     })
