@@ -91,6 +91,10 @@ export default function Membros() {
   const [vinculoMembroId, setVinculoMembroId] = useState('')
   const [chapterIdForm, setChapterIdForm] = useState('') 
 
+// Novos estados para o Modal de Reset de Senha
+const [exibirModalReset, setExibirModalReset] = useState(false)
+const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
+
   const [erroForm, setErroForm] = useState('')
 
   const limparCampos = () => {
@@ -302,9 +306,6 @@ export default function Membros() {
   // 🔑 RESET DE SENHA VIA SERVIDOR
   const handleResetarSenha = async () => {
     if (!idEdicao) return
-    
-    const confirmar = window.confirm('Tem certeza de que deseja resetar a senha deste irmão para o padrão "RockElite@123"? Ele será obrigado a alterá-la no próximo login.')
-    if (!confirmar) return
 
     setSalvandoDados(true)
     try {
@@ -319,7 +320,10 @@ export default function Membros() {
       if (!res.ok || dados.error) {
         alert('Erro ao resetar senha: ' + (dados.error || 'Erro desconhecido.'))
       } else {
-        alert('⚡ Chave forjada! A senha voltou para "RockElite@123" e a trava de primeiro acesso foi reativada.')
+        // Pega a nova senha gerada pela API ou usa a provisória padrão
+        const novaSenha = dados.novaSenha || 'RockElite@123'
+        setSenhaGerada(novaSenha) // Abre o modal de sucesso com a senha
+        
         limparCampos()
         setExibirFormulario(false)
         inicializarDados()
@@ -744,13 +748,13 @@ export default function Membros() {
               {idEdicao && (
                 <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center gap-2 justify-end">
                   <button
-                    type="button"
-                    onClick={handleResetarSenha}
-                    disabled={salvandoDados}
-                    className="rounded bg-zinc-800/80 border border-zinc-700 text-zinc-300 px-3 py-1 text-[10px] font-bold uppercase hover:bg-zinc-700 hover:text-white transition-all disabled:opacity-40 font-mono"
-                  >
-                    🔑 Resetar Senha
-                  </button>
+    type="button"
+    onClick={() => setExibirModalReset(true)}
+    disabled={salvandoDados}
+    className="rounded bg-zinc-800/80 border border-zinc-700 text-zinc-300 px-3 py-1 text-[10px] font-bold uppercase hover:bg-zinc-700 hover:text-white transition-all disabled:opacity-40 font-mono"
+  >
+    🔑 Resetar Senha
+  </button>
 
                   {statusAtivo && (
                     <button
@@ -1074,6 +1078,67 @@ export default function Membros() {
           </div>
         </div>
       )}
+
+{/* 🔑 MODAL DE CONFIRMAÇÃO DE RESET DE SENHA */}
+{exibirModalReset && !senhaGerada && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-[60] backdrop-blur-sm animate-fadeIn">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+            <h3 className="text-lg font-bold text-white uppercase tracking-wider mb-2 font-mono">🔑 Confirmar Reset</h3>
+            <p className="text-xs text-zinc-400 mb-6 font-mono">
+              Tem certeza de que deseja resetar a senha deste irmão? Ele será obrigado a alterá-la no próximo login.
+            </p>
+            <div className="flex gap-3 justify-end text-xs font-bold uppercase font-mono">
+              <button
+                type="button"
+                onClick={() => setExibirModalReset(false)}
+                className="px-4 py-2 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleResetarSenha}
+                disabled={salvandoDados}
+                className="px-4 py-2 rounded bg-zinc-100 text-zinc-950 hover:bg-zinc-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {salvandoDados ? 'Processando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ⚡ MODAL DE EXIBIÇÃO DA NOVA SENHA GERADA */}
+      {senhaGerada && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-[70] backdrop-blur-sm animate-fadeIn">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-sm w-full shadow-2xl text-center">
+            <div className="text-4xl mb-4">⚡</div>
+            <h3 className="text-lg font-bold text-emerald-400 uppercase tracking-wider mb-2 font-mono">Chave Forjada!</h3>
+            <p className="text-xs text-zinc-400 mb-4 font-mono">
+              A senha foi resetada com sucesso e a trava de primeiro acesso reativada. Copie a nova senha abaixo e repasse ao membro:
+            </p>
+            
+            <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-lg mb-6 flex items-center justify-center relative group">
+              <span className="text-lg font-black text-white tracking-widest font-mono select-all">
+                {senhaGerada}
+              </span>
+              <div className="absolute inset-0 bg-zinc-100/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none rounded-lg"></div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSenhaGerada(null)
+                setExibirModalReset(false)
+              }}
+              className="w-full px-4 py-3 rounded bg-zinc-100 text-zinc-950 font-black uppercase tracking-wider hover:bg-zinc-200 transition-colors font-mono text-xs"
+            >
+              Concluir
+            </button>
+          </div>
+        </div>
+      )}
+
     </main>
   )
 }

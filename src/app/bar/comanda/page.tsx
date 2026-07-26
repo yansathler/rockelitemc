@@ -22,7 +22,7 @@ interface Comanda {
   id: string
   membro_id: string | null
   nome_visitante: string | null
-  status: 'Aberta' | 'Paga' // Removido 'Pendurada'
+  status: 'Aberta' | 'Paga'
   valor_total: number
   total: number | null
   created_at: string
@@ -62,7 +62,7 @@ export default function ComandasPage() {
   const [comandaSelecionada, setComandaSelecionada] = useState<Comanda | null>(null)
   const [itensComanda, setItensComanda] = useState<ComandaItem[]>([])
 
-  // Filtros (Removido 'Pendurada')
+  // Filtros
   const [filtroStatus, setFiltroStatus] = useState<'Aberta' | 'Paga' | 'Todas'>('Aberta')
   const [filtroTipoCliente, setFiltroTipoCliente] = useState<'todos' | 'membro' | 'visitante'>('todos')
 
@@ -80,7 +80,7 @@ export default function ComandasPage() {
   const [produtoLancamentoId, setProdutoLancamentoId] = useState('')
   const [quantidadeLancamento, setQuantidadeLancamento] = useState(1)
 
-  // Formulário de Fechamento de Comanda (Removido 'pendurar')
+  // Formulário de Fechamento de Comanda
   const [metodoPagamento, setMetodoPagamento] = useState<'dinheiro' | 'pix' | 'cartao'>('pix')
 
   // Estado auxiliar para calcular totais das comandas
@@ -90,7 +90,7 @@ export default function ComandasPage() {
     async function checarAcesso() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
-        router.push('/login')
+        router.push('/')
       } else {
         setAutenticado(true)
         await Promise.all([carregarComandas(), carregarProdutos(), carregarMembros()])
@@ -254,57 +254,22 @@ export default function ComandasPage() {
     }
   }
 
+  // 🛡️ SOLUÇÃO ATÔMICA: Execução via RPC de banco sem manipulação de estoque no JS
   async function handleLancarItem(e: React.FormEvent) {
     e.preventDefault()
     if (!comandaSelecionada || !produtoLancamentoId) return
 
-    const produto = produtos.find(p => p.id === produtoLancamentoId)
-    if (!produto) return
-
-    if (produto.estoque_atual < quantidadeLancamento) {
-      alert(`❌ Operação bloqueada! Estoque insuficiente de ${produto.nome}. Disponível apenas: ${produto.estoque_atual} unidade(s).`)
-      return
-    }
-
     try {
       setSubmitting(true)
-      const valorLancamento = produto.preco_venda * quantidadeLancamento
 
-      const { error: errorEstoque } = await supabase
-        .from('bar_produtos')
-        .update({ estoque_atual: produto.estoque_atual - quantidadeLancamento })
-        .eq('id', produto.id)
+      // Invoca a procedure / RPC atômica do banco para checar e decrementar sem Lost Update
+      const { error } = await supabase.rpc('lancar_item_comanda', {
+        p_comanda_id: comandaSelecionada.id,
+        p_produto_id: produtoLancamentoId,
+        p_quantidade: quantidadeLancamento
+      })
 
-      if (errorEstoque) throw errorEstoque
-
-      const itemExistente = itensComanda.find(item => item.produto_id === produto.id)
-
-      if (itemExistente) {
-        const { error: errorUpdateItem } = await supabase
-          .from('bar_comanda_itens')
-          .update({ quantidade: itemExistente.quantidade + quantidadeLancamento })
-          .eq('id', itemExistente.id)
-
-        if (errorUpdateItem) throw errorUpdateItem
-      } else {
-        const { error: errorInsertItem } = await supabase
-          .from('bar_comanda_itens')
-          .insert([{
-            comanda_id: comandaSelecionada.id,
-            produto_id: produto.id,
-            quantidade: quantidadeLancamento,
-            preco_custo_aplicado: produto.preco_compra,
-            preco_venda_aplicado: produto.preco_venda
-          }])
-
-        if (errorInsertItem) throw errorInsertItem
-      }
-
-      const novoTotalComanda = (totaisComandas[comandaSelecionada.id] || 0) + valorLancamento
-      await supabase
-        .from('bar_comandas')
-        .update({ valor_total: novoTotalComanda, total: novoTotalComanda })
-        .eq('id', comandaSelecionada.id)
+      if (error) throw error
 
       alert('Item lançado com sucesso!')
       setProdutoLancamentoId('')
@@ -318,12 +283,13 @@ export default function ComandasPage() {
       ])
 
     } catch (error: any) {
-      alert(error.message || 'Erro ao lançar item.')
+      alert(error.message || 'Erro ao lançar item no estoque.')
     } finally {
       setSubmitting(false)
     }
   }
 
+  // 🛡️ SOLUÇÃO ATÔMICA: Estorno de produto incrementando direto via RPC/SQL
   async function handleRemoverItem(item: ComandaItem) {
     if (!comandaSelecionada) return
     
@@ -333,35 +299,14 @@ export default function ComandasPage() {
     try {
       setSubmitting(true)
 
-      const { data: prodData, error: prodGetError } = await supabase
-        .from('bar_produtos')
-        .select('estoque_atual')
-        .eq('id', item.produto_id)
-        .single()
+      const { error } = await supabase.rpc('estornar_item_comanda', {
+        p_item_id: item.id,
+        p_comanda_id: comandaSelecionada.id,
+        p_produto_id: item.produto_id,
+        p_quantidade: item.quantidade
+      })
 
-      if (prodGetError) throw prodGetError
-
-      const { error: prodUpdateError } = await supabase
-        .from('bar_produtos')
-        .update({ estoque_atual: prodData.estoque_atual + item.quantidade })
-        .eq('id', item.produto_id)
-
-      if (prodUpdateError) throw prodUpdateError
-
-      const { error: itemDeleteError } = await supabase
-        .from('bar_comanda_itens')
-        .delete()
-        .eq('id', item.id)
-
-      if (itemDeleteError) throw itemDeleteError
-
-      const valorEstornado = item.quantidade * item.preco_venda_aplicado
-      const novoTotalComanda = Math.max(0, (totaisComandas[comandaSelecionada.id] || 0) - valorEstornado)
-      
-      await supabase
-        .from('bar_comandas')
-        .update({ valor_total: novoTotalComanda, total: novoTotalComanda })
-        .eq('id', comandaSelecionada.id)
+      if (error) throw error
 
       alert('Item estornado com sucesso!')
       
@@ -413,7 +358,7 @@ export default function ComandasPage() {
       const { error: errorComanda } = await supabase
         .from('bar_comandas')
         .update({ 
-          status: 'Paga', // Forçado sempre como Paga
+          status: 'Paga',
           closed_at: new Date().toISOString(),
           caixa_movimentacao_id: caixaMovimentacaoId,
           valor_total: totalComandaSelecionada,
@@ -478,7 +423,7 @@ export default function ComandasPage() {
         </div>
       </div>
 
-      {/* FILTROS (Sem o status Pendurada) */}
+      {/* FILTROS */}
       <div className="mb-6 flex flex-wrap gap-4 items-center justify-between border-b border-zinc-900 pb-4">
         <div className="flex gap-2">
           {(['Aberta', 'Paga', 'Todas'] as const).map((status) => (
@@ -763,7 +708,7 @@ export default function ComandasPage() {
         </div>
       )}
 
-      {/* MODAL: FECHAR COMANDA (Apenas opções à vista) */}
+      {/* MODAL: FECHAR COMANDA */}
       {modalFecharComanda && comandaSelecionada && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border border-zinc-800 w-full max-w-sm rounded-xl p-6 shadow-2xl">
@@ -812,4 +757,4 @@ export default function ComandasPage() {
 
     </main>
   )
-} 
+}

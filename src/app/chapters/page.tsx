@@ -55,7 +55,7 @@ export default function GestaoChapters() {
     async function checarAcesso() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
-        router.push('/login')
+        router.push('/')
       } else {
         setAutenticado(true)
         await carregarPainelChapters()

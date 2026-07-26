@@ -23,6 +23,7 @@ export default function EstoqueBarPage() {
   const [carregando, setCarregando] = useState(true)
   const [autenticado, setAutenticado] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [membroId, setMembroId] = useState<string | null>(null)
 
   // Estados de Dados do Estoque
   const [produtos, setProdutos] = useState<Produto[]>([])
@@ -58,9 +59,10 @@ export default function EstoqueBarPage() {
     async function checarAcesso() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
-        router.push('/login')
+        router.push('/')
       } else {
         setAutenticado(true)
+        setMembroId(session.user.id)
         await carregarEstoque()
       }
     }
@@ -81,6 +83,10 @@ export default function EstoqueBarPage() {
 
       if (listaProdutos.length > 0 && !produtoSelecionado) {
         setProdutoSelecionado(listaProdutos[0])
+      } else if (produtoSelecionado) {
+        // Mantém o produto selecionado atualizado após operações
+        const atualizado = listaProdutos.find(p => p.id === produtoSelecionado.id)
+        if (atualizado) setProdutoSelecionado(atualizado)
       }
     } catch (error) {
       console.error('Erro ao buscar estoque:', error)
@@ -121,87 +127,38 @@ export default function EstoqueBarPage() {
     }
   }
 
-  // RNE-04, RNE-06 & Integração com Caixa Geral
+  // RNE-04, RNE-06 & Integração Atômica com Caixa via RPC
   async function handleMovimentarEstoque(e: React.FormEvent) {
     e.preventDefault()
     if (!produtoSelecionado) return
-  
+
     if (tipoMovimentacao === 'perda' && motivoPerda.trim().length < 10) {
       alert('⚠️ O motivo da perda deve conter pelo menos 10 caracteres para fins de auditoria.')
       return
     }
-  
-    // RNP-01: Se for entrada, valida se o novo preço de custo informado é maior/igual ao preço de revenda atual
+
+    // RNP-01: Se for entrada, valida se o novo preço de custo é maior/igual ao preço de revenda atual
     if (tipoMovimentacao === 'entrada' && novoPrecoCompra >= produtoSelecionado.preco_venda) {
       alert(`⚠️ Bloqueado: O novo preço de custo (R$ ${novoPrecoCompra.toFixed(2)}) é maior ou igual ao preço de revenda atual (R$ ${produtoSelecionado.preco_venda.toFixed(2)}). Altere o preço de revenda no cadastro antes de dar entrada ou revise o valor de compra.`)
       return
     }
-  
+
     try {
       setSubmitting(true)
-  
-      const alteracao = tipoMovimentacao === 'entrada' ? quantidadeMovimentacao : -quantidadeMovimentacao
-      const novoEstoque = produtoSelecionado.estoque_atual + alteracao
-  
-      if (novoEstoque < 0) {
-        alert('❌ Operação abortada: O estoque físico não pode ficar negativo.')
-        return
-      }
-  
-      let caixaMovimentacaoId = null
-      const precoCustoFinal = tipoMovimentacao === 'entrada' ? novoPrecoCompra : produtoSelecionado.preco_compra
-  
-      // Se for ENTRADA (Compra), gera débito de saída no caixa geral baseado no novo preço informado
-      if (tipoMovimentacao === 'entrada') {
-        const custoTotalLote = precoCustoFinal * quantidadeMovimentacao
-        
-        const { data: caixaData, error: caixaError } = await supabase
-          .from('caixa_movimentacoes')
-          .insert([
-            {
-              tipo: 'saida',
-              categoria: 'Bar - Compra de Estoque',
-              descricao: `Compra de Lote: ${quantidadeMovimentacao}x ${produtoSelecionado.nome} (Custo un: R$ ${precoCustoFinal.toFixed(2)})`,
-              valor: custoTotalLote,
-              data_movimentacao: new Date().toISOString()
-            }
-          ])
-          .select()
-          .single()
-  
-        if (caixaError) throw caixaError
-        caixaMovimentacaoId = caixaData.id
-      }
-  
-      // 1. Atualizar estoque (e preço de compra caso tenha sido alterado na entrada)
-      const dadosAtualizacao: any = { estoque_atual: novoEstoque }
-      if (tipoMovimentacao === 'entrada') {
-        dadosAtualizacao.preco_compra = precoCustoFinal
-      }
-  
-      const { error: prodError } = await supabase
-        .from('bar_produtos')
-        .update(dadosAtualizacao)
-        .eq('id', produtoSelecionado.id)
-  
-      if (prodError) throw prodError
-  
-      // 2. Registrar histórico do movimento
-      const { error: movError } = await supabase
-        .from('bar_movimentacoes_estoque')
-        .insert([
-          {
-            produto_id: produtoSelecionado.id,
-            tipo: tipoMovimentacao,
-            quantidade: quantidadeMovimentacao,
-            motivo_perda: tipoMovimentacao === 'perda' ? motivoPerda : null,
-            caixa_movimentacao_id: caixaMovimentacaoId
-          }
-        ])
-  
-      if (movError) throw movError
-  
-      alert('Estoque atualizado e movimentação financeira integrada!')
+
+      // Ejecuta a RPC atômica no banco de dados (Garante Transação e Rollback)
+      const { error } = await supabase.rpc('movimentar_estoque_bar', {
+        p_produto_id: produtoSelecionado.id,
+        p_tipo: tipoMovimentacao,
+        p_quantidade: quantidadeMovimentacao,
+        p_novo_preco_compra: tipoMovimentacao === 'entrada' ? novoPrecoCompra : null,
+        p_motivo_perda: tipoMovimentacao === 'perda' ? motivoPerda : null,
+        p_membro_id: membroId
+      })
+
+      if (error) throw error
+
+      alert('Estoque atualizado e movimentação financeira integrada com sucesso!')
       fecharModalMovimentar()
       await carregarEstoque()
     } catch (error: any) {
@@ -277,7 +234,7 @@ export default function EstoqueBarPage() {
 
       {/* PAINEL DE CARDS ANALÍTICOS (FILTRÁVEIS) */}
       <div className="mb-8 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {/* Card: Total de Itens (Filtro 'todos') */}
+        {/* Card: Total de Itens */}
         <div 
           onClick={() => setFiltro('todos')}
           className={`rounded-xl border p-5 cursor-pointer select-none transition-all ${
@@ -294,7 +251,7 @@ export default function EstoqueBarPage() {
           <p className="text-[9px] text-zinc-400 uppercase mt-1">Produtos ativos catalogados no bar (Clique para todos)</p>
         </div>
 
-        {/* Card: Estoque Crítico (Filtro 'critico') */}
+        {/* Card: Estoque Crítico */}
         <div 
           onClick={() => setFiltro('critico')}
           className={`rounded-xl border p-5 cursor-pointer select-none transition-all ${

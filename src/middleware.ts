@@ -28,14 +28,14 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // 2. Obtém o usuário ativo na sessão
+  // 2. Obtém o usuário ativo na sessão via servidor
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   const pathname = request.nextUrl.pathname
 
-  // Sua tela de login é a raiz '/'
+  // A página de login é a raiz '/'
   const isLoginPage = pathname === '/'
 
   // 3. REGRA 1: Usuário DESLOGADO tentando acessar qualquer página privada
@@ -55,7 +55,7 @@ export async function middleware(request: NextRequest) {
   return supabaseResponse
 }
 
-// 5. Matcher para interceptar TODAS as rotas e sub-rotas privadas
+// 5. Matcher para interceptar TODAS as rotas privadas da aplicação automaticamente
 export const config = {
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',

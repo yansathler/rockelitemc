@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../lib/supabase' // Ajuste a quantidade de ../ conforme a pasta exata
+import { supabaseAdmin } from '../../../lib/supabase'
 
 interface MembroLogin {
   id: string
@@ -11,23 +11,55 @@ interface MembroLogin {
   cpf: string
 }
 
+// 🛡️ Armazenamento simples em memória para Rate Limiting
+const rateLimitStore: Record<string, { count: number; lastReset: number }> = {}
+
+function verificarRateLimit(ip: string, limite = 5, janelaMs = 60 * 1000) {
+  const agora = Date.now()
+  const registro = rateLimitStore[ip] || { count: 0, lastReset: agora }
+
+  if (agora - registro.lastReset > janelaMs) {
+    registro.count = 0
+    registro.lastReset = agora
+  }
+
+  registro.count += 1
+  rateLimitStore[ip] = registro
+
+  return registro.count <= limite
+}
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    const { cpf, senha } = body
+    // 🛡️ 1. RATE LIMITING (Máximo 5 tentativas por minuto por IP)
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1'
+    const permitido = verificarRateLimit(ip, 5, 60 * 1000)
 
-    if (!cpf || !senha) {
+    if (!permitido) {
       return NextResponse.json(
-        { error: 'CPF e Senha são obrigatórios.' },
-        { status: 400 }
+        { error: 'Muitas tentativas de login. Por favor, aguarde 1 minuto.' },
+        { status: 429 }
       )
     }
 
-    // 1. Prepara as duas variações do CPF (Apenas Números vs Formatado com Pontos/Traço)
+    const body = await request.json()
+    const { cpf, senha } = body
+
+    // Mensagem de erro genérica padronizada para impedir enumeração
+    const ERRO_CREDENCIAS_INVALIDAS = 'CPF ou senha incorretos.'
+
+    if (!cpf || !senha) {
+      return NextResponse.json(
+        { error: ERRO_CREDENCIAS_INVALIDAS },
+        { status: 401 }
+      )
+    }
+
+    // 2. Prepara as duas variações do CPF
     const cpfLimpo = cpf.replace(/\D/g, '')
     const cpfFormatado = cpfLimpo.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
 
-    // 2. Busca o membro permitindo encontrar o CPF limpo OU formatado
+    // 3. Busca o membro permitindo encontrar o CPF limpo OU formatado
     const { data: membroData, error: membroError } = await supabaseAdmin
       .from('membros' as string)
       .select('id, email, status_ativo, nome_completo, cpf')
@@ -36,18 +68,11 @@ export async function POST(request: Request) {
 
     const membro = membroData as MembroLogin | null
 
+    // 🛡️ Se o CPF não existir, retorna 401 genérico em vez de "CPF não encontrado"
     if (membroError || !membro) {
       return NextResponse.json(
-        { error: 'Acesso negado. CPF não encontrado no cadastro.' },
+        { error: ERRO_CREDENCIAS_INVALIDAS },
         { status: 401 }
-      )
-    }
-
-    // 3. Valida a coluna booleana 'status_ativo' da sua tabela
-    if (membro.status_ativo === false) {
-      return NextResponse.json(
-        { error: 'Acesso negado. Membro com cadastro inativo.' },
-        { status: 403 }
       )
     }
 
@@ -75,16 +100,20 @@ export async function POST(request: Request) {
     )
 
     // 5. Tenta autenticar no Supabase Auth usando o E-mail REAL salvo na tabela
+    let authSucesso = false
+    let usuarioAutenticado = null
+
     const { data: authData, error: authError } =
       await supabaseServer.auth.signInWithPassword({
         email: membro.email,
         password: senha,
       })
 
-    let usuarioAutenticado = authData.user
-
-    // Fallback: Se falhar com e-mail real, tenta o e-mail sintético (para membros legados)
-    if (authError || !usuarioAutenticado) {
+    if (!authError && authData.user) {
+      authSucesso = true
+      usuarioAutenticado = authData.user
+    } else {
+      // Fallback: Se falhar com e-mail real, tenta o e-mail sintético (para membros legados)
       const emailSintetico = `${cpfLimpo}@rockelite.internal`
       const { data: authSintetico, error: errSintetico } =
         await supabaseServer.auth.signInWithPassword({
@@ -92,20 +121,32 @@ export async function POST(request: Request) {
           password: senha,
         })
 
-      if (errSintetico || !authSintetico.user) {
-        return NextResponse.json(
-          { error: 'Acesso negado. CPF ou Senha inválidos.' },
-          { status: 401 }
-        )
+      if (!errSintetico && authSintetico.user) {
+        authSucesso = true
+        usuarioAutenticado = authSintetico.user
       }
-
-      usuarioAutenticado = authSintetico.user
     }
 
-    // 6. Retorna a resposta que o seu page.tsx precisa para prosseguir
+    // 🛡️ Se a senha estiver errada, retorna 401 genérico
+    if (!authSucesso || !usuarioAutenticado) {
+      return NextResponse.json(
+        { error: ERRO_CREDENCIAS_INVALIDAS },
+        { status: 401 }
+      )
+    }
+
+    // 🛡️ 6. VALIDAÇÃO DO STATUS ATIVO (Feita APÓS confirmar que a senha está certa)
+    if (membro.status_ativo === false) {
+      return NextResponse.json(
+        { error: 'Acesso negado. Sua conta está inativa. Entre em contato com a diretoria.' },
+        { status: 403 }
+      )
+    }
+
+    // 7. Retorna a resposta de sucesso para o frontend
     return NextResponse.json({
       success: true,
-      emailSintetico: usuarioAutenticado.email, // Devolve o e-mail autenticado com segurança
+      emailSintetico: usuarioAutenticado.email,
       user: {
         id: usuarioAutenticado.id,
         nome: membro.nome_completo,
@@ -113,9 +154,8 @@ export async function POST(request: Request) {
       },
     })
   } catch (err: unknown) {
-    const mensagemErro = err instanceof Error ? err.message : 'Erro interno no servidor.'
     return NextResponse.json(
-      { error: mensagemErro },
+      { error: 'Erro interno no servidor ao processar autenticação.' },
       { status: 500 }
     )
   }
