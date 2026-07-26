@@ -42,28 +42,30 @@ export default function RedeMCs() {
     const idMembro = localStorage.getItem('@rockelite:membro_id')
     if (!idMembro) {
       router.replace('/')
-    } else {
-      carregarRedeMCs()
+      return
     }
-  }, [router])
 
-  const carregarRedeMCs = async () => {
-    setCarregando(true)
-    try {
-      const { data, error } = await supabase
-        .from('rede_mcs')
-        .select('*')
-        .order('nome_mc', { ascending: true })
+    async function buscarMcs() {
+      setCarregando(true)
+      try {
+        const { data, error } = await supabase
+          .from('rede_mcs')
+          .select('*')
+          .order('nome_mc', { ascending: true })
 
-      if (!error && data) {
-        setListaMcs(data)
+        if (!error && data) {
+          setListaMcs(data)
+        }
+      } catch (err) {
+        console.error('Erro ao carregar Rede de MCs:', err)
+      } finally {
+        setCarregando(false)
       }
-    } catch (err) {
-      console.error('Erro ao carregar Rede de MCs:', err)
-    } finally {
-      setCarregando(false)
     }
-  }
+
+    buscarMcs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router])
 
   const handleAbrirModalNovo = () => {
     setIdEdicao(null)
@@ -249,7 +251,7 @@ export default function RedeMCs() {
 
                   {mc.observacoes && (
                     <div className="bg-zinc-950/60 p-2.5 rounded border border-zinc-900/80 text-[11px] text-zinc-400 italic">
-                      "{mc.observacoes}"
+                      &quot;{mc.observacoes}&quot;
                     </div>
                   )}
                 </div>

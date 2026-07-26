@@ -673,9 +673,11 @@ export default function Financeiro() {
             onChange={(e) => setFiltroCategoria(e.target.value)}
             className="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 cursor-pointer"
           >
-            <option value="Todos">Todos</option>
-            <option value="Mensalidades">Mensalidades</option>
-            <option value="Combustível">Combustível</option>
+            <option value="Todos">Todas as Categorias</option>
+            <option value="mensalidade">Mensalidades</option>
+            <option value="bar">Caixa do Bar</option>
+            <option value="evento">Eventos</option>
+            <option value="sede">Sede / Infraestrutura</option>
           </select>
           <button onClick={limparFiltros} className="rounded-lg border border-zinc-800 bg-zinc-950 py-2 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors cursor-pointer">
             Limpar Filtros
@@ -926,6 +928,7 @@ export default function Financeiro() {
                   {novoLancamento.tipo === 'entrada' ? (
                     <>
                       <option value="mensalidade">Mensalidade de Irmão</option>
+                      <option value="bar">Caixa do Bar / Consumação</option>
                       <option value="colete">Venda de Colete</option>
                       <option value="doacao">Doação Externa</option>
                       <option value="evento">Arrecadação de Evento</option>
@@ -933,6 +936,7 @@ export default function Financeiro() {
                   ) : (
                     <>
                       <option value="sede">Manutenção de Sede / Aluguel</option>
+                      <option value="bar">Bar (Estoque / Insumos / Bebidas)</option>
                       <option value="coletes">Confecção de Coletes</option>
                       <option value="estrada">Despesa de Estrada</option>
                     </>

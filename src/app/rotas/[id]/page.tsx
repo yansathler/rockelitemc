@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { useState, useEffect, use } from 'react'
@@ -10,9 +11,9 @@ export default function DetalheRota({ params }: { params: Promise<{ id: string }
   const supabase = createClient()
 
   const [carregando, setCarregando] = useState(true)
-  const [rota, setRota] = useState<any>(null)
-  const [elementos, setElementos] = useState<any[]>([])
-  const [alertas, setAlertas] = useState<any[]>([])
+  const [rota, setRota] = useState<Record<string, any> | null>(null)
+  const [elementos, setElementos] = useState<Record<string, any>>([])
+  const [alertas, setAlertas] = useState<Record<string, any>>([])
 
   useEffect(() => {
     async function carregarDadosCompletos() {
@@ -61,6 +62,7 @@ export default function DetalheRota({ params }: { params: Promise<{ id: string }
     }
 
     carregarDadosCompletos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   if (carregando) {

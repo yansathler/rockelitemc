@@ -53,13 +53,14 @@ export default function GestaoRotas() {
     async function checarAcesso() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
-        router.push('/login')
+        router.push('/')
       } else {
         setAutenticado(true)
         await carregarPainelRotas()
       }
     }
     checarAcesso()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function carregarPainelRotas() {

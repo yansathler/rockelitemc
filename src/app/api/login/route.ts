@@ -3,6 +3,14 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../lib/supabase' // Ajuste a quantidade de ../ conforme a pasta exata
 
+interface MembroLogin {
+  id: string
+  email: string
+  status_ativo: boolean
+  nome_completo: string
+  cpf: string
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -20,11 +28,13 @@ export async function POST(request: Request) {
     const cpfFormatado = cpfLimpo.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
 
     // 2. Busca o membro permitindo encontrar o CPF limpo OU formatado
-    const { data: membro, error: membroError } = await supabaseAdmin
-      .from('membros')
+    const { data: membroData, error: membroError } = await supabaseAdmin
+      .from('membros' as string)
       .select('id, email, status_ativo, nome_completo, cpf')
       .or(`cpf.eq.${cpfLimpo},cpf.eq.${cpfFormatado}`)
       .maybeSingle()
+
+    const membro = membroData as MembroLogin | null
 
     if (membroError || !membro) {
       return NextResponse.json(
@@ -102,9 +112,10 @@ export async function POST(request: Request) {
         email: membro.email,
       },
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const mensagemErro = err instanceof Error ? err.message : 'Erro interno no servidor.'
     return NextResponse.json(
-      { error: err.message || 'Erro interno no servidor.' },
+      { error: mensagemErro },
       { status: 500 }
     )
   }

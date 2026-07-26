@@ -1,9 +1,38 @@
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../lib/supabase'
+
+async function verificarAutenticacao() {
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll() {}
+      }
+    }
+  )
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  return user
+}
 
 // 1. POST: Criação de novo membro ou Reset de Senha
 export async function POST(request: Request) {
   try {
+    const user = await verificarAutenticacao()
+    if (!user) {
+      return NextResponse.json({ error: 'Acesso não autorizado.' }, { status: 401 })
+    }
+
     const body = await request.json()
 
     // Se for solicitação de reset de senha
@@ -46,14 +75,20 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, user: authUser.user })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Erro interno no servidor.' }, { status: 500 })
+  } catch (err: unknown) {
+    const mensagemErro = err instanceof Error ? err.message : 'Erro interno no servidor.'
+    return NextResponse.json({ error: mensagemErro }, { status: 500 })
   }
 }
 
 // 2. PATCH: Inativação / Banimento / Reativação
 export async function PATCH(request: Request) {
   try {
+    const user = await verificarAutenticacao()
+    if (!user) {
+      return NextResponse.json({ error: 'Acesso não autorizado.' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { idMembro, statusAtivo, justificativa } = body
 
@@ -90,7 +125,8 @@ export async function PATCH(request: Request) {
     }
 
     return NextResponse.json({ success: true, message: `Status alterado para ${statusAtivo ? 'Ativo' : 'Inativo'}` })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Erro ao alterar status.' }, { status: 500 })
+  } catch (err: unknown) {
+    const mensagemErro = err instanceof Error ? err.message : 'Erro ao alterar status.'
+    return NextResponse.json({ error: mensagemErro }, { status: 500 })
   }
 }

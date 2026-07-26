@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect, useMemo, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../../../../lib/supabase'
 
@@ -58,11 +58,31 @@ export default function EditarRota({ params }: { params: Promise<{ id: string }>
 
   const [alertas, setAlertas] = useState<AlertaRota[]>([])
 
-  // Métricas Calculadas
-  const [kmTotal, setKmTotal] = useState(0)
-  const [tempoRodagemMinutos, setTempoRodagemMinutos] = useState(0)
-  const [qtdParadas, setQtdParadas] = useState(0)
-  const [tempoParadasMinutos, setTempoParadasMinutos] = useState(0)
+  // Métricas Calculadas (useMemo render-safe para React 19)
+  const { kmTotal, tempoRodagemMinutos, qtdParadas, tempoParadasMinutos } = useMemo(() => {
+    let km = 0, minRodagem = 0, paradasCount = 0, minParadas = 0
+    elementos.forEach(el => {
+      if (el.tipo === 'trecho') {
+        km += Number(el.distancia_km || 0)
+        if (el.tempo_estimado) {
+          const [h, m] = el.tempo_estimado.split(':').map(Number)
+          minRodagem += (h * 60) + (m || 0)
+        }
+      } else {
+        paradasCount++
+        if (el.tempo_permanencia) {
+          const [h, m] = el.tempo_permanencia.split(':').map(Number)
+          minParadas += (h * 60) + (m || 0)
+        }
+      }
+    })
+    return {
+      kmTotal: km,
+      tempoRodagemMinutos: minRodagem,
+      qtdParadas: paradasCount,
+      tempoParadasMinutos: minParadas
+    }
+  }, [elementos])
 
   // 1. Carrega Membros e os dados originais da rota
   useEffect(() => {
@@ -135,31 +155,8 @@ export default function EditarRota({ params }: { params: Promise<{ id: string }>
     }
 
     inicializarTela()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
-
-  // Recalcula totais automaticamente
-  useEffect(() => {
-    let km = 0, minRodagem = 0, paradasCount = 0, minParadas = 0
-    elementos.forEach(el => {
-      if (el.tipo === 'trecho') {
-        km += Number(el.distancia_km || 0)
-        if (el.tempo_estimado) {
-          const [h, m] = el.tempo_estimado.split(':').map(Number)
-          minRodagem += (h * 60) + (m || 0)
-        }
-      } else {
-        paradasCount++
-        if (el.tempo_permanencia) {
-          const [h, m] = el.tempo_permanencia.split(':').map(Number)
-          minParadas += (h * 60) + (m || 0)
-        }
-      }
-    })
-    setKmTotal(km)
-    setTempoRodagemMinutos(minRodagem)
-    setQtdParadas(paradasCount)
-    setTempoParadasMinutos(minParadas)
-  }, [elementos])
 
   const converterMinutosParaTexto = (totalMinutos: number) => {
     const horas = Math.floor(totalMinutos / 60)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../../../lib/supabase'
 
@@ -61,12 +61,6 @@ export default function CadastroRota() {
   // Aba 3: Alertas de Segurança
   const [alertas, setAlertas] = useState<AlertaRota[]>([])
 
-  // --- MÉTRICAS CALCULADAS EM TEMPO REAL ---
-  const [kmTotal, setKmTotal] = useState(0)
-  const [tempoRodagemMinutos, setTempoRodagemMinutos] = useState(0)
-  const [qtdParadas, setQtdParadas] = useState(0)
-  const [tempoParadasMinutos, setTempoParadasMinutos] = useState(0)
-
   // Carrega lista de membros ativos para as escalas
   useEffect(() => {
     async function obterMembros() {
@@ -79,35 +73,38 @@ export default function CadastroRota() {
       if (!error && data) setMembros(data)
     }
     obterMembros()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Recalcula totais automaticamente sempre que os elementos mudam
-  useEffect(() => {
+  // --- MÉTRICAS CALCULADAS EM TEMPO REAL (React 19 Render-safe) ---
+  const { kmTotal, tempoRodagemMinutos, qtdParadas, tempoParadasMinutos } = useMemo(() => {
     let km = 0
     let minRodagem = 0
     let paradasCount = 0
     let minParadas = 0
 
-    elementos.forEach(el => {
+    elementos.forEach((el) => {
       if (el.tipo === 'trecho') {
         km += Number(el.distancia_km || 0)
         if (el.tempo_estimado) {
           const [h, m] = el.tempo_estimado.split(':').map(Number)
-          minRodagem += (h * 60) + (m || 0)
+          minRodagem += h * 60 + (m || 0)
         }
       } else {
         paradasCount++
         if (el.tempo_permanencia) {
           const [h, m] = el.tempo_permanencia.split(':').map(Number)
-          minParadas += (h * 60) + (m || 0)
+          minParadas += h * 60 + (m || 0)
         }
       }
     })
 
-    setKmTotal(km)
-    setTempoRodagemMinutos(minRodagem)
-    setQtdParadas(paradasCount)
-    setTempoParadasMinutos(minParadas)
+    return {
+      kmTotal: km,
+      tempoRodagemMinutos: minRodagem,
+      qtdParadas: paradasCount,
+      tempoParadasMinutos: minParadas,
+    }
   }, [elementos])
 
   // Funções Auxiliares de Formatação de Tempo
@@ -495,7 +492,7 @@ export default function CadastroRota() {
                       <div className="flex gap-4 mt-2 sm:mt-0 font-semibold">
                         {['Zig-zag', 'Fila única', 'Livre'].map((padrao) => (
                           <label key={padrao} className="flex items-center gap-1.5 cursor-pointer text-zinc-400 hover:text-white">
-                            <input type="radio" name={`padrao-${el.id_temp}`} checked={el.padrao_comboio === padrao} onChange={() => atualizarElemento(el.id_temp, { padrao_comboio: padrao as any })} className="accent-blue-500" />
+                            <input type="radio" name={`padrao-${el.id_temp}`} checked={el.padrao_comboio === padrao} onChange={() => atualizarElemento(el.id_temp, { padrao_comboio: padrao as ElementoRota['padrao_comboio'] })} className="accent-blue-500" />
                             {padrao}
                           </label>
                         ))}
@@ -520,12 +517,12 @@ export default function CadastroRota() {
                 {alertas.length === 0 ? (
                   <p className="text-xs text-zinc-500 italic p-6 text-center border border-dashed border-zinc-900 rounded-xl">Nenhum aviso ou ponto crítico registrado para esta rota.</p>
                 ) : (
-                  alertas.map((al, idx) => (
+                  alertas.map((al) => (
                     <div key={al.id_temp} className={`flex items-start gap-3 p-4 rounded-xl border ${al.tipo_alerta === 'perigo' ? 'border-red-950 bg-red-950/5' : al.tipo_alerta === 'atencao' ? 'border-orange-950 bg-orange-950/5' : 'border-zinc-800 bg-zinc-950/40'}`}>
                       
                       <div className="flex flex-col gap-1.5">
                         <span className="text-[9px] font-bold text-zinc-500 uppercase block">Gravidade</span>
-                        <select value={al.tipo_alerta} onChange={e => atualizarAlerta(al.id_temp, al.descricao, e.target.value as any)} className="bg-zinc-950 border border-zinc-800 text-[11px] font-bold rounded p-1 text-white">
+                        <select value={al.tipo_alerta} onChange={e => atualizarAlerta(al.id_temp, al.descricao, e.target.value as AlertaRota['tipo_alerta'])} className="bg-zinc-950 border border-zinc-800 text-[11px] font-bold rounded p-1 text-white">
                           <option value="perigo">🚨 Crítico (Sirene)</option>
                           <option value="atencao">⚠️ Atenção</option>
                           <option value="informativo">ℹ️ Informativo</option>

@@ -112,7 +112,7 @@ const formatarCPF = (valor: string) => {
         }, 1200)
       }
 
-    } catch (err) {
+    } catch {
       setMensagem({ tipo: 'erro', texto: 'Erro inesperado ao tentar processar o login.' })
       setCarregando(false)
     }
@@ -161,7 +161,7 @@ const formatarCPF = (valor: string) => {
         router.refresh()
       }, 1500)
 
-    } catch (err) {
+    } catch {
       setMensagem({ tipo: 'erro', texto: 'Erro interno ao atualizar credenciais.' })
       setCarregando(false)
     }
