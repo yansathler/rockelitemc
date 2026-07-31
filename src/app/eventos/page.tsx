@@ -26,9 +26,13 @@ export default function GerenciamentoEventos() {
   const [eventosFiltrados, setEventosFiltrados] = useState<Evento[]>([])
   const [carregando, setCarregando] = useState(true)
 
-  // 🗓️ Estado do Filtro Global de Mês (Vem setado por padrão no mês atual de 1 a 12, ou '' para todos)
+  // 🗓️ Estados do Filtro de Mês e Ano (Inicia no mês e ano atuais)
+  const hoje = new Date()
   const [mesSelecionado, setMesSelecionado] = useState<string>(
-    String(new Date().getMonth() + 1)
+    String(hoje.getMonth() + 1)
+  )
+  const [anoSelecionado, setAnoSelecionado] = useState<string>(
+    String(hoje.getFullYear())
   )
 
   // 🎯 Estado do Filtro por Card ('all' | 'Role' | 'Bate-Papo' | 'Confraria')
@@ -58,23 +62,50 @@ export default function GerenciamentoEventos() {
     { value: '12', label: 'Dezembro' }
   ]
 
+  // Checagem de Autenticação via Supabase Auth (Única Fonte de Verdade)
   useEffect(() => {
-    carregarEventosDoBanco()
-  }, [])
+    const checarAutenticacao = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        router.replace('/')
+        return
+      }
 
-  // 🔄 Aplica os Filtros Combinados (Mês + Card) e Garante a Ordenação Ascendente
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.replace('/')
+        return
+      }
+
+      // Usuário autenticado com sucesso: carrega a agenda do banco
+      carregarEventosDoBanco()
+    }
+
+    checarAutenticacao()
+  }, [router, supabase])
+
+  // 🔄 Aplica os Filtros Combinados (Mês + Ano + Card) e Garante a Ordenação Ascendente
   useEffect(() => {
-    // 1. Filtragem por Mês (Baseada no universo completo vindo do banco)
+    // 1. Filtragem por Mês e Ano
     let escopoPorMes = [...eventosOriginais]
     if (mesSelecionado !== '') {
       escopoPorMes = eventosOriginais.filter((e) => {
         if (!e.data_evento) return false
-        const mesEvento = parseInt(e.data_evento.split('-')[1], 10)
-        return mesEvento === parseInt(mesSelecionado, 10)
+        
+        // e.data_evento está no formato 'YYYY-MM-DD'
+        const [anoEvtStr, mesEvtStr] = e.data_evento.split('-')
+        const mesEvento = parseInt(mesEvtStr, 10)
+        const anoEvento = parseInt(anoEvtStr, 10)
+
+        const mesMatch = mesEvento === parseInt(mesSelecionado, 10)
+        const anoMatch = anoSelecionado ? anoEvento === parseInt(anoSelecionado, 10) : true
+
+        return mesMatch && anoMatch
       })
     }
 
-    // 2. Cálculo dinâmico das métricas baseando-se APENAS no filtro de Mês (Exatamente como o financeiro)
+    // 2. Cálculo dinâmico das métricas baseando-se APENAS no filtro de Período
     const total = escopoPorMes.length
     const roles = escopoPorMes.filter(e => e.tipo_evento === 'Role').length
     const batePapos = escopoPorMes.filter(e => e.tipo_evento === 'Bate-Papo').length
@@ -87,7 +118,7 @@ export default function GerenciamentoEventos() {
       resultadoFinal = escopoPorMes.filter(e => e.tipo_evento === tipoSelecionado)
     }
 
-    // 4. 🔥 Ordenação Absoluta por Data de Forma Ascendente (Mais antiga/próxima para a mais distante)
+    // 4. 🔥 Ordenação Absoluta por Data de Forma Ascendente
     resultadoFinal.sort((a, b) => {
       const dataA = new Date(`${a.data_evento}T${a.horario_inicio || '00:00:00'}`)
       const dataB = new Date(`${b.data_evento}T${b.horario_inicio || '00:00:00'}`)
@@ -95,7 +126,7 @@ export default function GerenciamentoEventos() {
     })
 
     setEventosFiltrados(resultadoFinal)
-  }, [mesSelecionado, tipoSelecionado, eventosOriginais])
+  }, [mesSelecionado, anoSelecionado, tipoSelecionado, eventosOriginais])
 
   async function carregarEventosDoBanco() {
     setCarregando(true)
@@ -145,6 +176,10 @@ export default function GerenciamentoEventos() {
     return `${dia}/${mes}/${ano}`
   }
 
+  // Gera dinamicamente anos para o seletor (ex: 2 anos para trás até 2 anos para frente)
+  const anoAtual = new Date().getFullYear()
+  const opcoesAnos = Array.from({ length: 5 }, (_, i) => anoAtual - 2 + i)
+
   return (
     <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10 space-y-8">
       
@@ -156,13 +191,15 @@ export default function GerenciamentoEventos() {
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
-          {/* 🔍 FILTRO GLOBAL DE MÊS INTEGRADO */}
+          {/* 🔍 FILTRO GLOBAL DE MÊS E ANO INTEGRADO */}
           <div className="flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-3 py-1.5 rounded-lg">
             <span className="text-xs text-zinc-500 font-bold uppercase font-mono">Competência:</span>
+            
+            {/* Seletor de Mês */}
             <select 
               value={mesSelecionado} 
               onChange={(e) => setMesSelecionado(e.target.value)}
-              className="bg-transparent text-xs font-black text-white outline-none cursor-pointer pr-2 font-sans"
+              className="bg-transparent text-xs font-black text-white outline-none cursor-pointer font-sans"
             >
               {mesesAno.map((m) => (
                 <option key={m.value} value={m.value} className="bg-zinc-900 text-zinc-100">
@@ -170,6 +207,24 @@ export default function GerenciamentoEventos() {
                 </option>
               ))}
             </select>
+
+            {/* Seletor de Ano (Ativo quando um mês é selecionado) */}
+            {mesSelecionado !== '' && (
+              <>
+                <span className="text-zinc-600">/</span>
+                <select
+                  value={anoSelecionado}
+                  onChange={(e) => setAnoSelecionado(e.target.value)}
+                  className="bg-transparent text-xs font-black text-zinc-300 outline-none cursor-pointer font-mono"
+                >
+                  {opcoesAnos.map((ano) => (
+                    <option key={ano} value={String(ano)} className="bg-zinc-900 text-zinc-100">
+                      {ano}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
           </div>
 
           <button 

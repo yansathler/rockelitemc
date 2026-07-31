@@ -48,7 +48,20 @@ export default function EditarEvento({ params }: PageProps) {
   useEffect(() => {
     async function carregarEstruturaEEvento() {
       try {
-        // 1. Carrega as tabelas auxiliares de Chapters e Rotas
+        // 🔒 1. Validação de Guard via Supabase Auth (Sessão & Usuário Ativo)
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          router.replace('/')
+          return
+        }
+
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          router.replace('/')
+          return
+        }
+
+        // 2. Carrega as tabelas auxiliares de Chapters e Rotas
         const { data: dataChapters } = await supabase
           .from('chapters')
           .select('id, nome, cidade, estado')
@@ -62,7 +75,7 @@ export default function EditarEvento({ params }: PageProps) {
         if (dataChapters) setChapters(dataChapters)
         if (dataRotas) setRotas(dataRotas)
 
-        // 2. Busca os dados específicos do evento que está sendo editado
+        // 3. Busca os dados específicos do evento que está sendo editado
         const { data: evento, error: errEvento } = await supabase
           .from('eventos')
           .select('*')
@@ -91,7 +104,7 @@ export default function EditarEvento({ params }: PageProps) {
     }
 
     carregarEstruturaEEvento()
-  }, [eventoId])
+  }, [eventoId, router, supabase])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -105,6 +118,14 @@ export default function EditarEvento({ params }: PageProps) {
     setErro('')
 
     try {
+      // 🔒 Revalida autenticação antes de submeter alterações
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (!user) {
+        router.replace('/')
+        return
+      }
+
       const { error } = await supabase
         .from('eventos')
         .update({

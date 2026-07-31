@@ -32,6 +32,7 @@ interface MembroCompleto {
   tarjeta_escrita: string | null
   status_ativo: boolean
   valor_pendente?: number
+  possui_inadimplencia?: boolean
   mensalidades_pendentes?: CompetenciaPendente[]
 }
 
@@ -42,14 +43,6 @@ interface Transacao {
   data_movimentacao: string
   valor: number
   tipo: 'entrada' | 'saida'
-}
-
-interface MensalidadePaga {
-  id: string
-  membro_id: string
-  mes: number
-  ano: number
-  valor_pago: number
 }
 
 export default function Financeiro() {
@@ -143,7 +136,7 @@ export default function Financeiro() {
           const primeiraFila = pendencias[0]
           setNovoLancamento(prev => ({
             ...prev,
-            valor: primeiraFila.valor_calculado.toFixed(2),
+            valor: Number(primeiraFila.valor_calculado).toFixed(2),
             descricao: `Mensalidade Ref. ${primeiraFila.label} - ${irmao.nome_completo}`,
             competencia_selecionada: `${primeiraFila.mes}-${primeiraFila.ano}-${primeiraFila.valor_calculado}`
           }))
@@ -178,9 +171,7 @@ export default function Financeiro() {
   const inicializarModulo = async () => {
     setCarregando(true)
     const configAtualizada = await carregandoConfiguracoes()
-    if (configAtualizada) {
-      await calcularPainelFinanceiro(configAtualizada)
-    }
+    await calcularPainelFinanceiro()
     setCarregando(false)
   }
 
@@ -227,35 +218,19 @@ export default function Financeiro() {
     return null
   }
 
-  const obterValorHistoricoMembro = (mes: number, ano: number, tipoMembro: string, historico: VigenciaValor[]): number => {
-    let valorEncontrado = tipoMembro?.toLowerCase().includes('prospect') ? 45.00 : 55.00
-    
-    for (const vigencia of historico) {
-      if (ano > vigencia.ano_inicio || (ano === vigencia.ano_inicio && mes >= vigencia.mes_inicio)) {
-        valorEncontrado = tipoMembro?.toLowerCase().includes('prospect') 
-          ? vigencia.valor_prospect 
-          : vigencia.valor_full_patch
-      }
-    }
-    return valorEncontrado
-  }
-
-  const calcularPainelFinanceiro = async (configFinanceira: ConfigFinanceiro) => {
+  // 🚀 CÁLCULO MIGRADO: Executado diretamente via RPC / Stored Procedure no Postgres
+  const calcularPainelFinanceiro = async () => {
     try {
+      // 1. Busca transações de caixa
       const { data: movimentacoes } = await supabase
         .from('caixa_movimentacoes')
         .select('*')
         .order('data_movimentacao', { ascending: false })
 
-      const { data: membrosDb } = await supabase
-        .from('membros')
-        .select('id, nome_completo, tp_membro, data_filiacao, foto_url, tarjeta_escrita, status_ativo')
-        .eq('status_ativo', true)
+      // 2. Executa a RPC otimizada no Postgres para calcular a adimplência
+      const { data: relatorioMembros, error: rpcError } = await supabase.rpc('calcular_inadimplencia_membros')
 
-      const { data: mensalidadesDb } = await supabase.from('mensalidades').select('*')
-
-      const listaMembros: MembroCompleto[] = membrosDb || []
-      const listaMensalidades: MensalidadePaga[] = mensalidadesDb || []
+      if (rpcError) throw rpcError
 
       let totalEntradas = 0
       let totalSaidas = 0
@@ -263,7 +238,6 @@ export default function Financeiro() {
       let saiMes = 0
 
       const hoje = new Date()
-      const diaAtual = hoje.getDate()
       const mesAtual = hoje.getMonth()
       const anoAtual = hoje.getFullYear()
 
@@ -301,97 +275,50 @@ export default function Financeiro() {
       let boloPendenciasTotal = 0
       const adimplentes: MembroCompleto[] = []
       const inadimplentes: MembroCompleto[] = []
+      const listaMembrosProcessada: MembroCompleto[] = [];
 
-      const nomesMeses = [
-        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-      ]
-
-      listaMembros.forEach(membro => {
-        const dataFiliacao = membro.data_filiacao ? new Date(membro.data_filiacao) : new Date()
-        
-        let anoVarredura = dataFiliacao.getFullYear()
-        let mesVarredura = dataFiliacao.getMonth()
-
-        let debitoAcumulado = 0
-        let possuiInadimplenciaVencida = false
-        const pendenciasDoMembro: CompetenciaPendente[] = []
-
-        while (anoVarredura < anoAtual || (anoVarredura === anoAtual && mesVarredura <= mesAtual)) {
-          const mesBanco = mesVarredura + 1
-
-          const jaFoiPago = listaMensalidades.some(
-            mens => mens.membro_id === membro.id && mens.mes === mesBanco && mens.ano === anoVarredura
-          )
-
-          if (!jaFoiPago) {
-            const valorHistoricoCompetencia = obterValorHistoricoMembro(
-              mesBanco, 
-              anoVarredura, 
-              membro.tp_membro || '', 
-              configFinanceira.historico_valores
-            )
-
-            pendenciasDoMembro.push({
-              mes: mesBanco,
-              ano: anoVarredura,
-              label: `${nomesMeses[mesVarredura]} / ${anoVarredura}`,
-              valor_calculado: valorHistoricoCompetencia
-            })
-
-            const ehMesAnterior = anoVarredura < anoAtual || mesVarredura < mesAtual
-            const ehMesAtualVencido = anoVarredura === anoAtual && mesVarredura === mesAtual && diaAtual > configFinanceira.dia_vencimento
-
-            if (ehMesAnterior || ehMesAtualVencido) {
-              debitoAcumulado += valorHistoricoCompetencia
-              possuiInadimplenciaVencida = true
-            }
-          }
-
-          mesVarredura++
-          if (mesVarredura > 11) {
-            mesVarredura = 0
-            anoVarredura++
-          }
+      ((relatorioMembros as any[]) || []).forEach((row: any) => {
+        const membroFormatted: MembroCompleto = {
+          id: row.membro_id,
+          nome_completo: row.nome_completo,
+          tp_membro: row.tp_membro,
+          data_filiacao: row.data_filiacao,
+          foto_url: row.foto_url,
+          tarjeta_escrita: row.tarjeta_escrita,
+          status_ativo: row.status_ativo,
+          valor_pendente: Number(row.valor_pendente || 0),
+          possui_inadimplencia: row.possui_inadimplencia,
+          mensalidades_pendentes: row.mensalidades_pendentes || []
         }
 
-        const membroFormatado = {
-          ...membro,
-          valor_pendente: debitoAcumulado,
-          mensalidades_pendentes: pendenciasDoMembro
-        }
+        listaMembrosProcessada.push(membroFormatted)
 
-        if (possuiInadimplenciaVencida) {
-          boloPendenciasTotal += debitoAcumulado
-          inadimplentes.push(membroFormatado)
+        if (row.possui_inadimplencia) {
+          boloPendenciasTotal += Number(row.valor_pendente || 0)
+          inadimplentes.push(membroFormatted)
         } else {
-          adimplentes.push(membroFormatado)
+          adimplentes.push(membroFormatted)
         }
       })
 
-      setMembrosCompletos(listaMembros.map(m => {
-        const correspondenteInad = inadimplentes.find(i => i.id === m.id)
-        const correspondenteDia = adimplentes.find(d => d.id === m.id)
-        return correspondenteInad ? correspondenteInad : (correspondenteDia || { ...m, mensalidades_pendentes: [] })
-      }))
-      
+      setMembrosCompletos(listaMembrosProcessada)
       setMembrosEmDiaList(adimplentes)
       setMembrosEmAtrasoList(inadimplentes)
-      
-      setTotalMembros(listaMembros.length)
+
+      setTotalMembros(listaMembrosProcessada.length)
       setMembrosEmDiaCount(adimplentes.length)
       setMembrosEmAtrasoCount(inadimplentes.length)
       setPendenciasAReceber(boloPendenciasTotal)
 
-      if (listaMembros.length > 0) {
-        const taxa = Math.round((adimplentes.length / listaMembros.length) * 100)
+      if (listaMembrosProcessada.length > 0) {
+        const taxa = Math.round((adimplentes.length / listaMembrosProcessada.length) * 100)
         setTaxaAdimplencia(taxa)
       } else {
         setTaxaAdimplencia(100)
       }
 
     } catch (err) {
-      console.error('Erro crítico no motor financeiro:', err)
+      console.error('Erro crítico no motor financeiro (RPC):', err)
     }
   }
 
@@ -415,8 +342,8 @@ export default function Financeiro() {
       alert('Reajuste de mensalidade programado e salvo no histórico! ⚡')
       setExibirMenuConfig(false)
       
-      const configAtualizada = await carregandoConfiguracoes()
-      if (configAtualizada) await calcularPainelFinanceiro(configAtualizada)
+      await carregandoConfiguracoes()
+      await calcularPainelFinanceiro()
 
     } catch (err) {
       console.error(err)
@@ -500,7 +427,7 @@ export default function Financeiro() {
         competencia_selecionada: ''
       })
       
-      await calcularPainelFinanceiro(config)
+      await calcularPainelFinanceiro()
     } catch (err) {
       console.error(err)
       alert('Erro crítico ao salvar no banco.')
@@ -569,7 +496,7 @@ export default function Financeiro() {
             Voltar ao Dash
           </button>
           <button 
-            onClick={() => calcularPainelFinanceiro(config)}
+            onClick={() => calcularPainelFinanceiro()}
             className="flex items-center gap-1.5 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
           >
             🔄 Atualizar

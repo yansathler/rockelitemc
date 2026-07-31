@@ -2,6 +2,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../lib/supabase'
+import { Ratelimit } from '@upstash/ratelimit'
+import { Redis } from '@upstash/redis'
 
 interface MembroLogin {
   id: string
@@ -11,34 +13,32 @@ interface MembroLogin {
   cpf: string
 }
 
-// 🛡️ Armazenamento simples em memória para Rate Limiting
-const rateLimitStore: Record<string, { count: number; lastReset: number }> = {}
-
-function verificarRateLimit(ip: string, limite = 5, janelaMs = 60 * 1000) {
-  const agora = Date.now()
-  const registro = rateLimitStore[ip] || { count: 0, lastReset: agora }
-
-  if (agora - registro.lastReset > janelaMs) {
-    registro.count = 0
-    registro.lastReset = agora
-  }
-
-  registro.count += 1
-  rateLimitStore[ip] = registro
-
-  return registro.count <= limite
-}
+// 🛡️ Rate Limiting Persistente via Upstash Redis
+// Configurado para permitir no máximo 5 requisições a cada 1 minuto por IP
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(5, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:login',
+})
 
 export async function POST(request: Request) {
   try {
-    // 🛡️ 1. RATE LIMITING (Máximo 5 tentativas por minuto por IP)
+    // 🛡️ 1. RATE LIMITING PERSISTENTE
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1'
-    const permitido = verificarRateLimit(ip, 5, 60 * 1000)
+    const { success, limit, remaining, reset } = await ratelimit.limit(ip)
 
-    if (!permitido) {
+    if (!success) {
       return NextResponse.json(
         { error: 'Muitas tentativas de login. Por favor, aguarde 1 minuto.' },
-        { status: 429 }
+        { 
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': limit.toString(),
+            'X-RateLimit-Remaining': remaining.toString(),
+            'X-RateLimit-Reset': reset.toString(),
+          }
+        }
       )
     }
 

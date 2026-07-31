@@ -79,15 +79,29 @@ export default function GestaoInventario() {
     destino_motivo: ''
   })
 
+  // Checagem de Autenticação Tática via Supabase Auth
   useEffect(() => {
-    const idMembro = localStorage.getItem('@rockelite:membro_id')
-    if (!idMembro) {
-      router.replace('/')
-    } else {
+    const checarAutenticacao = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        router.replace('/')
+        return
+      }
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.replace('/')
+        return
+      }
+
+      // Autenticado com sucesso: carrega os dados
       carregarChapters()
       carregarMembros()
     }
-  }, [router])
+
+    checarAutenticacao()
+  }, [router, supabase])
 
   useEffect(() => {
     if (chapterAtivaId) {
@@ -213,41 +227,39 @@ export default function GestaoInventario() {
     <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100 md:p-10 space-y-8 font-sans">
       
       {/* CABEÇALHO TÁTICO NO PADRÃO REMC */}
-<div className="flex flex-col justify-between gap-4 border-b border-zinc-900 pb-6 sm:flex-row sm:items-center">
-  <div>
-    <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">📦 Gestão de Inventário</h1>
-    <p className="text-xs text-zinc-500 uppercase tracking-wider mt-0.5">Patrimônio, Boutique e Memória Histórica REMC</p>
-  </div>
+      <div className="flex flex-col justify-between gap-4 border-b border-zinc-900 pb-6 sm:flex-row sm:items-center">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">📦 Gestão de Inventário</h1>
+          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-0.5">Patrimônio, Boutique e Memória Histórica REMC</p>
+        </div>
 
-  <div className="flex flex-wrap items-center gap-3">
-    {chapters.length > 0 && (
-      <div className="flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-3 py-1.5 rounded-lg">
-        <span className="text-xs text-zinc-500 font-bold uppercase font-mono">Chapter:</span>
-        <select value={chapterAtivaId} onChange={(e) => setChapterAtivaId(e.target.value)} className="bg-transparent text-xs font-black text-white outline-none cursor-pointer pr-2">
-          {chapters.map((c) => (
-            <option key={c.id} value={c.id} className="bg-zinc-900 text-zinc-100">{c.nome} ({c.estado})</option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-3">
+          {chapters.length > 0 && (
+            <div className="flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-3 py-1.5 rounded-lg">
+              <span className="text-xs text-zinc-500 font-bold uppercase font-mono">Chapter:</span>
+              <select value={chapterAtivaId} onChange={(e) => setChapterAtivaId(e.target.value)} className="bg-transparent text-xs font-black text-white outline-none cursor-pointer pr-2">
+                {chapters.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-zinc-900 text-zinc-100">{c.nome} ({c.estado})</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button 
+            onClick={() => router.push('/dashboard')} 
+            className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-2 text-xs font-black uppercase text-zinc-400 hover:text-white hover:bg-zinc-900 transition-all font-mono"
+          >
+            Voltar ao Dash
+          </button>
+
+          <button
+            onClick={() => abaAtiva === 'trofeus' ? setModalTrofeuAberto(true) : setModalItemAberto(true)}
+            className="rounded-lg bg-white px-4 py-2 text-xs font-black uppercase text-black hover:bg-zinc-200 transition-colors font-mono"
+          >
+            ➕ Novo Registro
+          </button>
+        </div>
       </div>
-    )}
-    
-
-    <button 
-      onClick={() => router.push('/dashboard')} 
-      className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-2 text-xs font-black uppercase text-zinc-400 hover:text-white hover:bg-zinc-900 transition-all font-mono"
-    >
-      Voltar ao Dash
-    </button>
-
-    <button
-      onClick={() => abaAtiva === 'trofeus' ? setModalTrofeuAberto(true) : setModalItemAberto(true)}
-      className="rounded-lg bg-white px-4 py-2 text-xs font-black uppercase text-black hover:bg-zinc-200 transition-colors font-mono"
-    >
-      ➕ Novo Registro
-    </button>
-
-  </div>
-</div>
 
       {/* ABAS */}
       <div className="flex border-b border-zinc-900 gap-2">
@@ -318,19 +330,19 @@ export default function GestaoInventario() {
                         {abaAtiva === 'boutique' && <span className="block text-emerald-400">V: R$ {Number(item.preco_venda).toFixed(2)}</span>}
                       </td>
                       <td className="p-4 text-center space-x-2 whitespace-nowrap">
-  <button 
-    onClick={() => { setItemSelecionado(item); setModalMovimentarAberto(true); }}
-    className="text-zinc-400 hover:text-white transition-colors bg-zinc-900 px-2 py-1.5 rounded border border-zinc-800 text-[11px] font-bold uppercase tracking-wider"
-  >
-    ⚙️ Movimentar
-  </button>
-  <button 
-    onClick={() => deletarItem(item.id, 'inventario_itens')} 
-    className="text-red-400 hover:text-red-300 transition-colors bg-red-950/20 hover:bg-red-950/40 px-2 py-1.5 rounded border border-red-900/40 text-[11px] font-bold uppercase tracking-wider"
-  >
-    ❌ Apagar
-  </button>
-</td>
+                        <button 
+                          onClick={() => { setItemSelecionado(item); setModalMovimentarAberto(true); }}
+                          className="text-zinc-400 hover:text-white transition-colors bg-zinc-900 px-2 py-1.5 rounded border border-zinc-800 text-[11px] font-bold uppercase tracking-wider"
+                        >
+                          ⚙️ Movimentar
+                        </button>
+                        <button 
+                          onClick={() => deletarItem(item.id, 'inventario_itens')} 
+                          className="text-red-400 hover:text-red-300 transition-colors bg-red-950/20 hover:bg-red-950/40 px-2 py-1.5 rounded border border-red-900/40 text-[11px] font-bold uppercase tracking-wider"
+                        >
+                          ❌ Apagar
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -340,7 +352,7 @@ export default function GestaoInventario() {
         )}
       </div>
 
-      {/* MODAL: MOVIMENTAR / CAUTELA (MANUTENÇÃO OU EMPRÉSTIMO) */}
+      {/* MODAL: MOVIMENTAR / CAUTELA */}
       {modalMovimentarAberto && itemSelecionado && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-6 space-y-4">
@@ -414,7 +426,7 @@ export default function GestaoInventario() {
         </div>
       )}
 
-      {/* MODAL: CADASTRO DE ITEM (MANTIDO DO ANTERIOR COM TEXTO ATUALIZADO) */}
+      {/* MODAL: CADASTRO DE ITEM */}
       {modalItemAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-6 space-y-4">
@@ -478,7 +490,7 @@ export default function GestaoInventario() {
         </div>
       )}
 
-      {/* MODAL: CADASTRO DE TROFÉU (MANTIDO DO ANTERIOR) */}
+      {/* MODAL: CADASTRO DE TROFÉU */}
       {modalTrofeuAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-6 space-y-4">

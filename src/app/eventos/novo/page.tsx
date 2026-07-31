@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '../../../lib/supabase' // ajuste o caminho se necessário
+import { createClient } from '../../../lib/supabase'
 
 interface Chapter {
   id: string
@@ -32,17 +32,30 @@ export default function NovoEvento() {
   const [pontoEncontro, setPontoEncontro] = useState('')
   const [rotaId, setRotaId] = useState('') // Para quando for Rolê
 
-  // Estados de Carga
+  // Estados de Carga e Autenticação
   const [chapters, setChapters] = useState<Chapter[]>([])
   const [rotas, setRotas] = useState<Rota[]>([])
   const [carregandoDados, setCarregandoDados] = useState(true)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
 
-  // 🏁 1. Carga Inicial de Chapters Ativos e Rotas Táticas
+  // 🏁 1. Validação de Sessão e Carga Inicial de Dados
   useEffect(() => {
-    async function carregarDados() {
+    async function carregarDadosEAutenticar() {
       try {
+        // Validação da Sessão Supabase Auth
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          router.replace('/')
+          return
+        }
+
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          router.replace('/')
+          return
+        }
+
         // Busca os chapters
         const { data: dataChapters } = await supabase
           .from('chapters')
@@ -64,30 +77,22 @@ export default function NovoEvento() {
           setRotas(dataRotas)
         }
       } catch (err) {
-        console.error('Erro ao buscar dados na base:', err)
+        console.error('Erro ao carregar dados operacionais:', err)
       } finally {
         setCarregandoDados(false)
       }
     }
-    carregarDados()
-  }, [])
 
-  // 🔄 2. Efeito dinâmico: Modifica o comportamento do Ponto de Encontro baseado nas regras táticas
+    carregarDadosEAutenticar()
+  }, [router, supabase])
+
+  // 🔄 2. Efeito dinâmico: Preenche automaticamente a sede para Confraria e Bate-Papo
   useEffect(() => {
-    if (tipoEvento === 'Confraria') {
-      // Pega o nome do primeiro chapter ativo se existir
+    if (tipoEvento === 'Confraria' || tipoEvento === 'Bate-Papo') {
       if (chapters.length > 0) {
         const principal = chapters.find(c => c.id === chapterId) || chapters[0]
         setPontoEncontro(principal.nome)
       }
-    } else if (tipoEvento === 'Bate-Papo') {
-      if (chapters.length > 0) {
-        const principal = chapters.find(c => c.id === chapterId) || chapters[0]
-        setPontoEncontro(principal.nome) // Sugestão em campo livre
-      }
-    } else {
-      setPontoEncontro('') // Rolê vem limpo
-      setRotaId('') // Reseta a rota inicialmente
     }
   }, [tipoEvento, chapterId, chapters])
 
@@ -101,7 +106,7 @@ export default function NovoEvento() {
     }
 
     if (tipoEvento === 'Role' && !pontoEncontro.trim()) {
-      setErro('⚠️ Para lançar um Rolê, defina o ponto de encontro do comboio.');
+      setErro('⚠️ Para lançar um Rolê, defina o ponto de encontro do comboio.')
       return
     }
 
@@ -109,7 +114,13 @@ export default function NovoEvento() {
     setErro('')
 
     try {
-      const membroId = localStorage.getItem('@rockelite:membro_id')
+      // Revalida e resgata o usuário autenticado diretamente do Supabase Auth
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (!user) {
+        router.replace('/')
+        return
+      }
 
       const { error } = await supabase
         .from('eventos')
@@ -122,9 +133,9 @@ export default function NovoEvento() {
             data_evento: dataEvento,
             horario_inicio: horarioInicio,
             ponto_encontro: pontoEncontro,
-            rota_id: tipoEvento === 'Role' && rotaId ? rotaId : null, // Guarda se for rolê
+            rota_id: tipoEvento === 'Role' && rotaId ? rotaId : null,
             status: 'Agendado',
-            criado_por: membroId || null
+            criado_por: user.id
           }
         ])
 
@@ -184,7 +195,13 @@ export default function NovoEvento() {
               <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">Tipo de Missão</label>
               <select
                 value={tipoEvento}
-                onChange={(e) => setTipoEvento(e.target.value)}
+                onChange={(e) => {
+                  const novoTipo = e.target.value
+                  setTipoEvento(novoTipo)
+                  if (novoTipo === 'Role') {
+                    setPontoEncontro('')
+                  }
+                }}
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-zinc-500 outline-none cursor-pointer"
               >
                 <option value="Role" className="bg-zinc-900 text-white">⚡ Rolê (Estrada/Comboio)</option>
@@ -257,7 +274,6 @@ export default function NovoEvento() {
             </label>
 
             {tipoEvento === 'Confraria' ? (
-              /* Confraria: Apenas Sedes via Select */
               <select
                 value={pontoEncontro}
                 onChange={(e) => setPontoEncontro(e.target.value)}
@@ -270,7 +286,6 @@ export default function NovoEvento() {
                 ))}
               </select>
             ) : (
-              /* Bate-Papo (Sugere sede mas é editável) e Rolê (Em branco) */
               <input 
                 type="text" 
                 value={pontoEncontro}

@@ -38,34 +38,46 @@ export default function RedeMCs() {
     observacoes: ''
   })
 
+  // Checagem de Autenticação via Supabase Auth (Única Fonte de Verdade)
   useEffect(() => {
-    const idMembro = localStorage.getItem('@rockelite:membro_id')
-    if (!idMembro) {
-      router.replace('/')
-      return
-    }
-
-    async function buscarMcs() {
-      setCarregando(true)
-      try {
-        const { data, error } = await supabase
-          .from('rede_mcs')
-          .select('*')
-          .order('nome_mc', { ascending: true })
-
-        if (!error && data) {
-          setListaMcs(data)
-        }
-      } catch (err) {
-        console.error('Erro ao carregar Rede de MCs:', err)
-      } finally {
-        setCarregando(false)
+    const checarAutenticacao = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        router.replace('/')
+        return
       }
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.replace('/')
+        return
+      }
+
+      // Usuário validado: realiza a busca da Rede de MCs
+      carregarRedeMCs()
     }
 
-    buscarMcs()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router])
+    checarAutenticacao()
+  }, [router, supabase])
+
+  const carregarRedeMCs = async () => {
+    setCarregando(true)
+    try {
+      const { data, error } = await supabase
+        .from('rede_mcs')
+        .select('*')
+        .order('nome_mc', { ascending: true })
+
+      if (!error && data) {
+        setListaMcs(data)
+      }
+    } catch (err) {
+      console.error('Erro ao carregar Rede de MCs:', err)
+    } finally {
+      setCarregando(false)
+    }
+  }
 
   const handleAbrirModalNovo = () => {
     setIdEdicao(null)
@@ -364,17 +376,17 @@ export default function RedeMCs() {
               </div>
 
               <div className="space-y-1">
-  <label className="text-zinc-500 font-bold uppercase">Telefone / WhatsApp com DDD *</label>
-  <input
-    required
-    type="text"
-    maxLength={15}
-    value={form.telefone}
-    onChange={(e) => setForm({ ...form, telefone: aplicarMascaraTelefone(e.target.value) })}
-    placeholder="(24) 99999-9999"
-    className="w-full rounded bg-zinc-900 border border-zinc-800 p-2 text-white outline-none font-mono focus:border-zinc-600"
-  />
-</div>
+                <label className="text-zinc-500 font-bold uppercase">Telefone / WhatsApp com DDD *</label>
+                <input
+                  required
+                  type="text"
+                  maxLength={15}
+                  value={form.telefone}
+                  onChange={(e) => setForm({ ...form, telefone: aplicarMascaraTelefone(e.target.value) })}
+                  placeholder="(24) 99999-9999"
+                  className="w-full rounded bg-zinc-900 border border-zinc-800 p-2 text-white outline-none font-mono focus:border-zinc-600"
+                />
+              </div>
 
               <div className="space-y-1">
                 <label className="text-zinc-500 font-bold uppercase">Observações (Ponto de apoio, alojamento...)</label>

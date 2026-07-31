@@ -91,7 +91,7 @@ export default function Membros() {
   const [vinculoMembroId, setVinculoMembroId] = useState('')
   const [chapterIdForm, setChapterIdForm] = useState('') 
 
-  // Novos estados para o Modal de Reset de Senha
+  // Novos estados para o Modal de Reset de Senha / Exibição de Senha Gerada
   const [exibirModalReset, setExibirModalReset] = useState(false)
   const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
 
@@ -181,6 +181,14 @@ export default function Membros() {
   const inicializarDados = async () => {
     setCarregando(true)
     
+    // 🛡️ Autenticação via Supabase Auth como Única Fonte de Verdade
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      router.push('/login')
+      return
+    }
+
     const { data: dataChapters } = await supabase
       .from('chapters')
       .select('id, nome')
@@ -230,29 +238,25 @@ export default function Membros() {
     return true
   })
 
-  // 🛡️ FUNÇÃO DE UPLOAD ADAPTADA E SEGURA
+  // 🛡️ UPLOAD SEGURO DE FOTO
   const fazerUploadFoto = async (idDoMembro: string): Promise<string | null> => {
     if (!arquivoFoto) return fotoUrl || null
 
-    // 1. Regras de Segurança
     const TAMANHO_MAXIMO_BYTES = 2 * 1024 * 1024 // 2 MB
     const TIPOS_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp']
 
-    // 2. Validação de Tamanho
     if (arquivoFoto.size > TAMANHO_MAXIMO_BYTES) {
       setErroForm('❌ A imagem deve ter no máximo 2MB.')
       return null
     }
 
-    // 3. Validação do MIME Type Real
     if (!TIPOS_PERMITIDOS.includes(arquivoFoto.type)) {
-      setErroForm('❌ Formato inválido! Envie apenas imagens nos formatos JPG, PNG ou WEBP.')
+      setErroForm('❌ Formato inválido! Envie apenas imagens JPG, PNG ou WEBP.')
       return null
     }
 
     setEnviandoFoto(true)
     try {
-      // 4. Mapeamento seguro de extensões via MIME Type validado
       const extensoesMime: Record<string, string> = {
         'image/jpeg': 'jpg',
         'image/png': 'png',
@@ -264,7 +268,7 @@ export default function Membros() {
       const { error: uploadError } = await supabase.storage
         .from('fotos-membros')
         .upload(nomeArquivo, arquivoFoto, {
-          contentType: arquivoFoto.type, // Define o Header correto
+          contentType: arquivoFoto.type,
           cacheControl: '3600',
           upsert: true
         })
@@ -336,7 +340,7 @@ export default function Membros() {
       if (!res.ok || dados.error) {
         alert('Erro ao resetar senha: ' + (dados.error || 'Erro desconhecido.'))
       } else {
-        const novaSenha = dados.novaSenha || 'RockElite@123'
+        const novaSenha = dados.novaSenha || dados.senhaProvisoria
         setSenhaGerada(novaSenha)
         
         limparCampos()
@@ -347,6 +351,19 @@ export default function Membros() {
       alert('Erro na infraestrutura do servidor: ' + err.message)
     } finally {
       setSalvandoDados(false)
+    }
+  }
+
+  // 🔄 Função utilitária de Rollback para deletar usuário Auth recém-criado
+  const efetuarRollbackUsuarioAuth = async (idMembro: string) => {
+    try {
+      await fetch('/api/membros', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idMembro })
+      })
+    } catch (err: any) {
+      console.error('Erro durante rollback do usuário Auth:', err.message)
     }
   }
 
@@ -372,8 +389,10 @@ export default function Membros() {
     }
 
     let idRegistro = idEdicao
+    let novoUsuarioCriado = false
+    let senhaProvisoriaGerada: string | null = null
 
-    // Se for um novo cadastro, cria a conta no Supabase Auth via API Server-Side
+    // Se for um novo cadastro, envia sem 'senhaProvisoria' para que a API crie de forma segura server-side
     if (!idEdicao) {
       try {
         const resAuth = await fetch('/api/membros', {
@@ -382,7 +401,8 @@ export default function Membros() {
           body: JSON.stringify({
             cpf: cpfLimpo,
             email: email || null,
-            senhaProvisoria: 'RockElite@123'
+            nome_completo: nomeCompleto,
+            cargo_diretoria: cargoDiretoria
           })
         })
 
@@ -393,6 +413,11 @@ export default function Membros() {
         }
 
         idRegistro = dadosAuth.user.id
+        novoUsuarioCriado = true
+
+        if (dadosAuth.senhaProvisoria) {
+          senhaProvisoriaGerada = dadosAuth.senhaProvisoria
+        }
       } catch (err: any) {
         setErroForm('Erro ao criar usuário no Auth: ' + err.message)
         setSalvandoDados(false)
@@ -400,8 +425,12 @@ export default function Membros() {
       }
     }
 
+    // Attempt de Upload de Foto
     const urlDaFotoFinal = await fazerUploadFoto(idRegistro!)
     if (arquivoFoto && !urlDaFotoFinal) {
+      if (novoUsuarioCriado) {
+        await efetuarRollbackUsuarioAuth(idRegistro!)
+      }
       setSalvandoDados(false)
       return
     }
@@ -448,8 +477,14 @@ export default function Membros() {
     setSalvandoDados(false)
 
     if (resultado.error) {
+      if (novoUsuarioCriado) {
+        await efetuarRollbackUsuarioAuth(idRegistro!)
+      }
       setErroForm('Erro ao salvar cadastro do integrante: ' + resultado.error.message)
     } else {
+      if (senhaProvisoriaGerada) {
+        setSenhaGerada(senhaProvisoriaGerada)
+      }
       limparCampos()
       setExibirFormulario(false)
       inicializarDados()
@@ -1129,7 +1164,7 @@ export default function Membros() {
             <div className="text-4xl mb-4">⚡</div>
             <h3 className="text-lg font-bold text-emerald-400 uppercase tracking-wider mb-2 font-mono">Chave Forjada!</h3>
             <p className="text-xs text-zinc-400 mb-4 font-mono">
-              A senha foi resetada com sucesso e a trava de primeiro acesso reativada. Copie a nova senha abaixo e repasse ao membro:
+              A senha foi gerada/resetada com sucesso e a trava de primeiro acesso ativada. Copie a nova senha abaixo e repasse ao membro:
             </p>
             
             <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-lg mb-6 flex items-center justify-center relative group">

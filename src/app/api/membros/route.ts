@@ -3,32 +3,24 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../lib/supabase'
 import { gerarSenhaProvisoria } from '../../../lib/utils'
+import { Ratelimit } from '@upstash/ratelimit'
+import { Redis } from '@upstash/redis'
 
-// 🛡️ Armazenamento simples em memória para Rate Limiting
-const rateLimitStore: Record<string, { count: number; lastReset: number }> = {}
+// 🛡️ Rate Limiting Persistente via Upstash Redis
+// Configurado para permitir no máximo 15 requisições por minuto por IP/Endpoint
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(15, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:membros',
+})
 
-function verificarRateLimit(ip: string, limite = 15, janelaMs = 60 * 1000) {
-  const agora = Date.now()
-  const registro = rateLimitStore[ip] || { count: 0, lastReset: agora }
-
-  if (agora - registro.lastReset > janelaMs) {
-    registro.count = 0
-    registro.lastReset = agora
-  }
-
-  registro.count += 1
-  rateLimitStore[ip] = registro
-
-  return registro.count <= limite
-}
-
-// 1. Cargos permitidos padronizados no formato id/snake_case do banco
+// 1. Cargos permitidos estritamente restritos à Diretoria do MC
 const CARGOS_DIRETORIA_PERMITIDOS = [
   'presidente',
   'vice_presidente',
   'diretor_administrativo',
-  'secretario',
-  'membro' // Adicione se necessário para testes de permissão
+  'secretario'
 ]
 
 async function verificarPermissaoAdmin() {
@@ -64,7 +56,7 @@ async function verificarPermissaoAdmin() {
   if (dbError || !eAdmin) {
     return { 
       autorizado: false, 
-      errorResponse: NextResponse.json({ error: 'Acesso negado. Apenas membros da diretoria autorizados.' }, { status: 403 }),
+      errorResponse: NextResponse.json({ error: 'Acesso negado. Apenas diretores autorizados podem gerenciar contas.' }, { status: 403 }),
       user 
     }
   }
@@ -75,12 +67,21 @@ async function verificarPermissaoAdmin() {
 // 1. POST: Criação de novo membro ou Reset de Senha
 export async function POST(request: Request) {
   try {
-    // 🛡️ RATE LIMITING (Máximo de 15 requisições por minuto por IP)
+    // 🛡️ RATE LIMITING PERSISTENTE
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1'
-    if (!verificarRateLimit(`membros_post_${ip}`, 15, 60 * 1000)) {
+    const { success, limit, remaining, reset } = await ratelimit.limit(`post_${ip}`)
+
+    if (!success) {
       return NextResponse.json(
         { error: 'Muitas requisições enviadas. Aguarde 1 minuto e tente novamente.' },
-        { status: 429 }
+        { 
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': limit.toString(),
+            'X-RateLimit-Remaining': remaining.toString(),
+            'X-RateLimit-Reset': reset.toString(),
+          }
+        }
       )
     }
 
@@ -106,7 +107,6 @@ export async function POST(request: Request) {
 
       if (resetError) throw resetError
 
-      // Retorna tanto 'novaSenha' quanto 'senhaProvisoria' para garantir compatibilidade
       return NextResponse.json({ 
         success: true, 
         message: 'Senha resetada com sucesso!',
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     // 2. Insere os dados do membro na tabela pública
     const { error: dbError } = await supabaseAdmin.from('membros').insert([
       {
-        id: authUser.user.id, // Amarra o ID da tabela 'membros' ao ID de 'auth.users'
+        id: authUser.user.id,
         cpf: cpfLimpo,
         email: emailFinal,
         nome_completo: nome_completo || 'Novo Membro',
@@ -174,12 +174,21 @@ export async function POST(request: Request) {
 // 2. PATCH: Inativação / Banimento / Reativação
 export async function PATCH(request: Request) {
   try {
-    // 🛡️ RATE LIMITING (Máximo de 15 requisições por minuto por IP)
+    // 🛡️ RATE LIMITING PERSISTENTE
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1'
-    if (!verificarRateLimit(`membros_patch_${ip}`, 15, 60 * 1000)) {
+    const { success, limit, remaining, reset } = await ratelimit.limit(`patch_${ip}`)
+
+    if (!success) {
       return NextResponse.json(
         { error: 'Muitas requisições enviadas. Aguarde 1 minuto e tente novamente.' },
-        { status: 429 }
+        { 
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': limit.toString(),
+            'X-RateLimit-Remaining': remaining.toString(),
+            'X-RateLimit-Reset': reset.toString(),
+          }
+        }
       )
     }
 
