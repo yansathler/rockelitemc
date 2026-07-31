@@ -91,9 +91,9 @@ export default function Membros() {
   const [vinculoMembroId, setVinculoMembroId] = useState('')
   const [chapterIdForm, setChapterIdForm] = useState('') 
 
-// Novos estados para o Modal de Reset de Senha
-const [exibirModalReset, setExibirModalReset] = useState(false)
-const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
+  // Novos estados para o Modal de Reset de Senha
+  const [exibirModalReset, setExibirModalReset] = useState(false)
+  const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
 
   const [erroForm, setErroForm] = useState('')
 
@@ -149,33 +149,25 @@ const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
   }
 
   const aplicarMascaraCEP = async (valor: string) => {
-    // 1. Extrai APENAS os números (remove traços, pontos e espaços)
     const apenasNumeros = valor.replace(/\D/g, '').slice(0, 8)
     
-    // 2. Aplica a máscara no input (Ex: 28350-000)
     const cepFormatado = apenasNumeros.length > 5 
       ? `${apenasNumeros.slice(0, 5)}-${apenasNumeros.slice(5)}`
       : apenasNumeros
   
     setCep(cepFormatado)
   
-    // 3. Quando completar 8 dígitos, faz a busca
     if (apenasNumeros.length === 8) {
       try {
         const res = await fetch(`https://viacep.com.br/ws/${apenasNumeros}/json/`)
         const dados = await res.json()
   
-        // Se não retornar a flag de erro explícita
         if (!dados.erro && dados.localidade) {
-          // Preenche Cidade e UF obrigatoriamente
           setEnderecoCidade(dados.localidade || '')
           setEnderecoEstado(dados.uf || '')
-  
-          // Preenche Rua e Bairro apenas se a API retornar (CEPs de rua)
           setEnderecoRua(dados.logradouro || '')
           setEnderecoBairro(dados.bairro || '')
-          
-          setErroForm('') // Limpa qualquer mensagem de erro
+          setErroForm('')
         } else {
           setErroForm('⚠️ CEP não localizado na base dos Correios.')
         }
@@ -238,27 +230,51 @@ const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
     return true
   })
 
+  // 🛡️ FUNÇÃO DE UPLOAD ADAPTADA E SEGURA
   const fazerUploadFoto = async (idDoMembro: string): Promise<string | null> => {
     if (!arquivoFoto) return fotoUrl || null
-  
+
+    // 1. Regras de Segurança
+    const TAMANHO_MAXIMO_BYTES = 2 * 1024 * 1024 // 2 MB
+    const TIPOS_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp']
+
+    // 2. Validação de Tamanho
+    if (arquivoFoto.size > TAMANHO_MAXIMO_BYTES) {
+      setErroForm('❌ A imagem deve ter no máximo 2MB.')
+      return null
+    }
+
+    // 3. Validação do MIME Type Real
+    if (!TIPOS_PERMITIDOS.includes(arquivoFoto.type)) {
+      setErroForm('❌ Formato inválido! Envie apenas imagens nos formatos JPG, PNG ou WEBP.')
+      return null
+    }
+
     setEnviandoFoto(true)
     try {
-      const extensao = arquivoFoto.name.split('.').pop()
-      const nomeArquivo = `${idDoMembro}-${Date.now()}.${extensao}`
-  
+      // 4. Mapeamento seguro de extensões via MIME Type validado
+      const extensoesMime: Record<string, string> = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp'
+      }
+      const extensaoSegura = extensoesMime[arquivoFoto.type]
+      const nomeArquivo = `${idDoMembro}-${Date.now()}.${extensaoSegura}`
+
       const { error: uploadError } = await supabase.storage
         .from('fotos-membros')
         .upload(nomeArquivo, arquivoFoto, {
+          contentType: arquivoFoto.type, // Define o Header correto
           cacheControl: '3600',
           upsert: true
         })
-  
+
       if (uploadError) throw uploadError
-  
+
       const { data } = supabase.storage
         .from('fotos-membros')
         .getPublicUrl(nomeArquivo)
-  
+
       return data.publicUrl
     } catch (error: any) {
       console.error('Erro ao fazer upload da foto:', error.message)
@@ -320,9 +336,8 @@ const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
       if (!res.ok || dados.error) {
         alert('Erro ao resetar senha: ' + (dados.error || 'Erro desconhecido.'))
       } else {
-        // Pega a nova senha gerada pela API ou usa a provisória padrão
         const novaSenha = dados.novaSenha || 'RockElite@123'
-        setSenhaGerada(novaSenha) // Abre o modal de sucesso com a senha
+        setSenhaGerada(novaSenha)
         
         limparCampos()
         setExibirFormulario(false)
@@ -708,8 +723,7 @@ const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
                     📸
                     <input 
                       type="file" 
-                      accept="image/*" 
-                      capture="environment"
+                      accept="image/jpeg,image/png,image/webp" 
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {
                           setArquivoFoto(e.target.files[0])
@@ -748,13 +762,13 @@ const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
               {idEdicao && (
                 <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center gap-2 justify-end">
                   <button
-    type="button"
-    onClick={() => setExibirModalReset(true)}
-    disabled={salvandoDados}
-    className="rounded bg-zinc-800/80 border border-zinc-700 text-zinc-300 px-3 py-1 text-[10px] font-bold uppercase hover:bg-zinc-700 hover:text-white transition-all disabled:opacity-40 font-mono"
-  >
-    🔑 Resetar Senha
-  </button>
+                    type="button"
+                    onClick={() => setExibirModalReset(true)}
+                    disabled={salvandoDados}
+                    className="rounded bg-zinc-800/80 border border-zinc-700 text-zinc-300 px-3 py-1 text-[10px] font-bold uppercase hover:bg-zinc-700 hover:text-white transition-all disabled:opacity-40 font-mono"
+                  >
+                    🔑 Resetar Senha
+                  </button>
 
                   {statusAtivo && (
                     <button
@@ -968,56 +982,56 @@ const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
                 </div>
               )}
 
-{abaAtiva === 'endereco' && (
-  <div className="space-y-4">
-    <div>
-      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">
-        CEP (Digite os 8 números)
-      </label>
-      <input 
-        type="text" 
-        value={cep} 
-        onChange={(e) => aplicarMascaraCEP(e.target.value)} 
-        placeholder="00000-000" 
-        maxLength={9}
-        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" 
-      />
-    </div>
+              {abaAtiva === 'endereco' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">
+                      CEP (Digite os 8 números)
+                    </label>
+                    <input 
+                      type="text" 
+                      value={cep} 
+                      onChange={(e) => aplicarMascaraCEP(e.target.value)} 
+                      placeholder="00000-000" 
+                      maxLength={9}
+                      className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" 
+                    />
+                  </div>
 
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div className="sm:col-span-2">
-        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Rua / Logradouro</label>
-        <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-      </div>
-      <div>
-        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Número</label>
-        <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-      </div>
-    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Rua / Logradouro</label>
+                      <input type="text" value={enderecoRua} onChange={(e) => setEnderecoRua(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Número</label>
+                      <input type="text" value={enderecoNumero} onChange={(e) => setEnderecoNumero(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                  </div>
 
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div>
-        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Complemento</label>
-        <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-      </div>
-      <div>
-        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Bairro</label>
-        <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-      </div>
-    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Complemento</label>
+                      <input type="text" value={enderecoComplemento} onChange={(e) => setEnderecoComplemento(e.target.value)} placeholder="Apto, Bloco..." className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Bairro</label>
+                      <input type="text" value={enderecoBairro} onChange={(e) => setEnderecoBairro(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                  </div>
 
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div className="sm:col-span-2">
-        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Cidade</label>
-        <input type="text" value={enderecoCidade} onChange={(e) => setEnderecoCidade(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
-      </div>
-      <div>
-        <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Estado (UF)</label>
-        <input type="text" value={enderecoEstado} onChange={(e) => setEnderecoEstado(e.target.value)} placeholder="UF" maxLength={2} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none text-center uppercase font-mono" />
-      </div>
-    </div>
-  </div>
-)}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Cidade</label>
+                      <input type="text" value={enderecoCidade} onChange={(e) => setEnderecoCidade(e.target.value)} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-400 mb-1 uppercase font-mono">Estado (UF)</label>
+                      <input type="text" value={enderecoEstado} onChange={(e) => setEnderecoEstado(e.target.value)} placeholder="UF" maxLength={2} className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-zinc-600 focus:outline-none text-center uppercase font-mono" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {erroForm && <p className="text-xs font-semibold text-red-400 bg-red-950/30 p-2.5 rounded border border-red-900 font-mono">{erroForm}</p>}
 
@@ -1079,8 +1093,8 @@ const [senhaGerada, setSenhaGerada] = useState<string | null>(null)
         </div>
       )}
 
-{/* 🔑 MODAL DE CONFIRMAÇÃO DE RESET DE SENHA */}
-{exibirModalReset && !senhaGerada && (
+      {/* 🔑 MODAL DE CONFIRMAÇÃO DE RESET DE SENHA */}
+      {exibirModalReset && !senhaGerada && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-[60] backdrop-blur-sm animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-sm w-full shadow-2xl">
             <h3 className="text-lg font-bold text-white uppercase tracking-wider mb-2 font-mono">🔑 Confirmar Reset</h3>
